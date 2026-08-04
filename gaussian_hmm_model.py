@@ -177,6 +177,24 @@ if __name__ == '__main__':
             optimal_bic_model = best_models[num_states]
             optimal_bic = bic
 
+    states_inferred = optimal_bic_model.predict(sequence_data, sample_lengths)
+    output_headers = ["STUDY_PRTCPT_ID","DaysFromTransplant","mean_hr","percent_active","state"]
+    output_handle = open("../output.csv", 'w', newline='')
+    output_writer = csv.DictWriter(output_handle, fieldnames=output_headers)
+    output_writer.writeheader()
+    current_state_idx = 0
+    for patient in patients_sorted:
+        days_sorted = [x for x in dataset[patient].keys()]
+        days_sorted.sort()
+        for day in days_sorted:
+            dataset[patient][day]["state"] = states_inferred[current_state_idx]
+            current_row = dataset[patient][day]
+            current_row["STUDY_PRTCPT_ID"] = patient
+            current_row["DaysFromTransplant"] = day
+            output_writer.writerow(current_row)
+            current_state_idx = current_state_idx + 1
+    output_handle.close()
+
     print("Start probabilities:\n")
     print(optimal_bic_model.startprob_)
     print("\nTransition probabilities:\n")
@@ -202,7 +220,7 @@ if __name__ == '__main__':
         optimal_bic_model.startprob_,
         optimal_bic_model.transmat_,
         optimal_bic_model.means_[:,0].ravel(),
-        optimal_bic_model.covars_[:,0].ravel(),
+        [x[0][0] for x in optimal_bic_model.covars_],
         infer_hidden=False,
     )
     f.suptitle("Expectation-Maximization Solution, Feature 0", size=16)
@@ -211,7 +229,7 @@ if __name__ == '__main__':
         optimal_bic_model.startprob_,
         optimal_bic_model.transmat_,
         optimal_bic_model.means_[:,1].ravel(),
-        optimal_bic_model.covars_[:,1].ravel(),
+        [x[1][1] for x in optimal_bic_model.covars_],
         infer_hidden=False,
     )
     f.suptitle("Expectation-Maximization Solution, Feature 1", size=16)
