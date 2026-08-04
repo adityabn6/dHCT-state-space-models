@@ -3,6 +3,7 @@
 import numpy as np
 from hmmlearn import hmm
 import csv
+import sys
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
 import scipy.stats
@@ -88,51 +89,40 @@ def learn_model(num_states, num_features, sequence_data, sample_lengths):
 
 if __name__ == '__main__':
     # load and normalize per-patient data
-    hr_vals = []
+    dataset = None
+    dataset = load_update_data_dict("../data/daily_hr.csv", "mean_hr", dataset)
+    dataset = load_update_data_dict("../data/daily_activity.csv", "percent_active", dataset)
+    #for this, how to normalize? some people will have varying activity at baseline
+    #dataset = load_update_data_dict("../data/daily_steps.csv", "mean_steps_per_minute", dataset)
+    #lots of missing data points, maybe throw in something else first
+    #dataset = load_update_data_dict("../data/mood.csv", "MOOD", dataset)
+
+    patients_sorted = [x for x in dataset.keys()]
+    patients_sorted.sort()
+    num_patients = len(dataset)
+
     sample_lengths = []
-
-    #dataset = None
-    #dataset = load_update_data_dict("daily_hr_length.csv", "mean_hr", dataset)
-    #dataset = load_update_data_dict("daily_steps.csv", "mean_steps_per_minute", dataset)
-    #dataset = load_update_data_dict("mood.csv", "MOOD", dataset)
-
-    # removed line 138 so that it matches up with the activity
-    daily_hr_file = open("../data/daily_hr_length.csv")
-    daily_hr_reader = csv.DictReader(daily_hr_file, delimiter=',')
-    last_patient = ""
-    current_vals = None
-    for row in daily_hr_reader:
-        if row["Group"] == "Patients":
-            if row["STUDY_PRTCPT_ID"] != last_patient:
-                last_patient = row["STUDY_PRTCPT_ID"]
-                if current_vals is not None:
-                    hr_vals.append(current_vals)
-                    sample_lengths.append(len(current_vals))
-                current_vals = []
-            current_vals.append(float(row["mean_hr"]))
-
-    hr_vals.append(current_vals)
-    sample_lengths.append(len(current_vals))
-    daily_hr_file.close()
-
-    num_patients = len(sample_lengths)
-
+    hr_vals = []
     activity_vals = []
-    daily_activity_file = open("../data/daily_activity.csv")
-    daily_activity_reader = csv.DictReader(daily_activity_file, delimiter=',')
-    last_patient = ""
-    current_vals = None
-    for row in daily_activity_reader:
-        if row["Group"] == "Patients":
-            if row["STUDY_PRTCPT_ID"] != last_patient:
-                last_patient = row["STUDY_PRTCPT_ID"]
-                if current_vals is not None:
-                    activity_vals.append(current_vals)
-                current_vals = []
-            current_vals.append(float(row["percent_active"]))
-
-    activity_vals.append(current_vals)
-    daily_activity_file.close()
+    step_vals = []
+    mood_vals = []
+    for patient in patients_sorted:
+        sample_lengths.append(len(dataset[patient]))
+        current_hr_vals = []
+        current_activity_vals = []
+        #current_step_vals = []
+        #current_mood_vals = []
+        days_sorted = [x for x in dataset[patient].keys()]
+        days_sorted.sort()
+        for day in days_sorted:
+            current_hr_vals.append(dataset[patient][day]["mean_hr"])
+            current_activity_vals.append(dataset[patient][day]["percent_active"])
+            #current_step_vals.append(dataset[patient][day]["mean_steps_per_minute"])
+            #current_mood_vals.append(dataset[patient][day]["MOOD"])
+        hr_vals.append(current_hr_vals)
+        activity_vals.append(current_activity_vals)
+        #step_vals.append(current_step_vals)
+        #mood_vals.append(current_mood_vals)
 
     zero_centered_hr_vals = []
     zero_centered_hr_vals_flat = []
@@ -143,20 +133,15 @@ if __name__ == '__main__':
             current_vals.append(hr_vals[i][j] - mean)
             zero_centered_hr_vals_flat.append(hr_vals[i][j] - mean)
         zero_centered_hr_vals.append(current_vals)
-
-    # zero_centered_hr_vals_flat_reshape = np.reshape(zero_centered_hr_vals_flat, (-1, 1))
     zero_centered_hr_vals_flat = np.array(zero_centered_hr_vals_flat)
 
-    #switch to steps: activity is derived from steps
     activity_vals_flat = []
     for i in range(0, num_patients):
         for j in range(0, sample_lengths[i]):
             activity_vals_flat.append(activity_vals[i][j])
-
     activity_vals_flat = np.array(activity_vals_flat)
 
     sequence_data = np.transpose(np.vstack([zero_centered_hr_vals_flat, activity_vals_flat]))
-
     num_features = np.shape(sequence_data)[1]
 
     # number of models we try at each number of states
@@ -200,6 +185,7 @@ if __name__ == '__main__':
     print(optimal_bic_model.means_)
     print("\nCovariance matrices:\n")
     print(optimal_bic_model.covars_)
+    sys.stdout.flush()
 
     aic_list = []
     bic_list = []
