@@ -10,6 +10,8 @@ import scipy.stats
 import multiprocessing
 
 # https://hmmlearn.readthedocs.io/en/latest/auto_examples/plot_variational_inference.html
+# https://pmc.ncbi.nlm.nih.gov/articles/PMC13186999/
+# https://deepblue.lib.umich.edu/data/concern/data_sets/ht24wk394?locale=en
 
 def gaussian_hinton_diagram(startprob, transmat, means, variances, vmin=0, vmax=1, infer_hidden=True):
     num_states = transmat.shape[0]
@@ -80,6 +82,25 @@ def load_update_data_dict(filepath, key, data):
     file_handle.close()
     return new_data
 
+#this updates data in place
+def load_update_clinical_outcome(filepath, day_key, data_keys, data):
+    #data -> {patient} -> {day post-txp} -> {features}
+    file_handle = open(filepath)
+    file_reader = csv.DictReader(file_handle, delimiter=',')
+    for row in file_reader:
+        patient = row["STUDY_PRTCPT_ID"]
+        try:
+            day = int(row[day_key])
+            if data.get(patient) is None:
+                data[patient] = {}
+            if data[patient].get(day) is None:
+                data[patient][day] = {}
+            for key in data_keys:
+                data[patient][day][key] = row[key]
+        except ValueError:
+            pass
+    file_handle.close()
+
 def learn_model(num_states, num_features, sequence_data, sample_lengths):
     em = hmm.GaussianHMM(num_states, n_iter=1000, covariance_type="full",implementation="scaling",tol=1e-6,verbose=False)
     em.n_features = num_features
@@ -95,6 +116,7 @@ if __name__ == '__main__':
     #for this, how to normalize? some people will have varying activity at baseline
     #dataset = load_update_data_dict("../data/daily_steps.csv", "mean_steps_per_minute", dataset)
     #lots of missing data points, maybe throw in something else first
+    #also many instances of multiple survey results on the same day
     #dataset = load_update_data_dict("../data/mood.csv", "MOOD", dataset)
 
     patients_sorted = [x for x in dataset.keys()]
@@ -148,7 +170,7 @@ if __name__ == '__main__':
     num_inits = 10
     # range of states to try
     min_states = 2
-    max_states = 6
+    max_states = 8
 
     num_processes = 6
 
@@ -172,13 +194,19 @@ if __name__ == '__main__':
     optimal_bic = None
     for num_states in range(min_states, max_states + 1):
         bic = best_models[num_states].bic(sequence_data, sample_lengths)
-        print(str(num_states) + " states: BIC " + str(bic) + "\n")
+        print(str(num_states) + " states: BIC " + str(bic))
         if optimal_bic_model is None or optimal_bic > bic:
             optimal_bic_model = best_models[num_states]
             optimal_bic = bic
 
+    #add clinical annotation: read in outcome files (like readmission and outcome) into sparse map
+    clinical_data = {}
+    load_update_clinical_outcome("../data/infections.csv","date_culture_drawn",["culture_source","infection_type","infection_name"], clinical_data)
+    load_update_clinical_outcome("../data/readmissions.csv","date_admit",["admission_reason"], clinical_data)
+
     states_inferred = optimal_bic_model.predict(sequence_data, sample_lengths)
-    output_headers = ["STUDY_PRTCPT_ID","DaysFromTransplant","mean_hr","percent_active","state"]
+    clinical_headers = ["culture_source","infection_type","infection_name","admission_reason"]
+    output_headers = ["STUDY_PRTCPT_ID","DaysFromTransplant","mean_hr","percent_active","state"] + clinical_headers
     output_handle = open("../output.csv", 'w', newline='')
     output_writer = csv.DictWriter(output_handle, fieldnames=output_headers)
     output_writer.writeheader()
@@ -189,6 +217,15 @@ if __name__ == '__main__':
         for day in days_sorted:
             dataset[patient][day]["state"] = states_inferred[current_state_idx]
             current_row = dataset[patient][day]
+            if clinical_data.get(patient) is not None and clinical_data[patient].get(day) is not None:
+                for clinical_key in clinical_headers:
+                    if clinical_data[patient][day].get(clinical_key) is not None:
+                        current_row[clinical_key] = clinical_data[patient][day][clinical_key]
+                    else:
+                        current_row[clinical_key] = ""
+            else:
+                for clinical_key in clinical_headers:
+                    current_row[clinical_key] = ""
             current_row["STUDY_PRTCPT_ID"] = patient
             current_row["DaysFromTransplant"] = day
             output_writer.writerow(current_row)
@@ -240,4 +277,3 @@ if __name__ == '__main__':
 # try learning model on patients with or without GVHD alone; if models look very different that would suggest something can be learned
 # add mood score feature - will be discrete but could model it continuous if needed
 # also try this for caregivers as a control
-# for output, can probably add viterbi decode result to dataset and output everything to a new csv
