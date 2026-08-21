@@ -94,6 +94,20 @@ def load_update_data_dict(filepath, key, data):
     file_handle.close()
     return new_data
 
+#based on number of entires for a patient, flatten the list of data points into a single array
+#if zero_center set to True, normalize for a mean of zero
+def flatten_by_patient(data, sample_lengths, zero_center=False):
+    flattened = []
+    num_patients = len(sample_lengths)
+    offset = 0
+    for i in range(0, num_patients):
+        if zero_center:
+            offset = np.mean(data[i])
+        for j in range(0, sample_lengths[i]):
+            flattened.append(data[i][j] - offset)
+    flattened = np.array(flattened)
+    return flattened
+
 #this updates data in place
 def load_update_clinical_outcome(filepath, day_key, data_keys, data):
     #data -> {patient} -> {day post-txp} -> {features}
@@ -158,27 +172,14 @@ if __name__ == '__main__':
         #step_vals.append(current_step_vals)
         #mood_vals.append(current_mood_vals)
 
-    zero_centered_hr_vals = []
-    zero_centered_hr_vals_flat = []
-    for i in range(0, num_patients):
-        current_vals = []
-        mean = np.mean(hr_vals[i])
-        for j in range(0, sample_lengths[i]):
-            current_vals.append(hr_vals[i][j] - mean)
-            zero_centered_hr_vals_flat.append(hr_vals[i][j] - mean)
-        zero_centered_hr_vals.append(current_vals)
-    zero_centered_hr_vals_flat = np.array(zero_centered_hr_vals_flat)
+    zero_centered_hr_vals_flat = flatten_by_patient(hr_vals, sample_lengths, zero_center=True)
     f = qqplot_norm(zero_centered_hr_vals_flat)
     f.suptitle("zero_centered_hr_vals_flat")
 
-    activity_vals_flat = []
-    for i in range(0, num_patients):
-        for j in range(0, sample_lengths[i]):
-            activity_vals_flat.append(activity_vals[i][j])
-    activity_vals_flat = np.array(activity_vals_flat)
-    activity_vals_flat_log_transform = np.log([x+1 for x in activity_vals_flat])
+    activity_vals_flat = flatten_by_patient(activity_vals, sample_lengths)
     f = qqplot_norm(activity_vals_flat)
     f.suptitle("activity_vals_flat")
+    activity_vals_flat_log_transform = np.log([x+1 for x in activity_vals_flat])
     f = qqplot_norm(activity_vals_flat_log_transform)
     f.suptitle("activity_vals_flat_log_transform")
 
