@@ -94,6 +94,32 @@ def load_update_data_dict(filepath, key, data):
     file_handle.close()
     return new_data
 
+#for a specific file, column key, and previous data set, return a new data set with desired data from this file while entries that are not in this file are set to fill=
+def load_update_data_dict_fill(filepath, key, data, fill=0):
+    new_data = {}
+    #pre-fill the array
+    for patient in data:
+        for day in data[patient]:
+            if patient not in new_data:
+                new_data[patient] = {}
+            new_data[patient][day] = {}
+            for k, v in data[patient][day].items():
+                new_data[patient][day][k] = v
+            new_data[patient][day][key] = fill
+    #then overwrite pre-filled values with whatever's in the input file
+    file_handle = open(filepath)
+    file_reader = csv.DictReader(file_handle, delimiter=',')
+    for row in file_reader:
+        if row["Group"] == "Patients":
+            patient = row["STUDY_PRTCPT_ID"]
+            day = int(row["DaysFromTransplant"])
+            #make sure we have a record for this patient-day
+            if data.get(patient) is not None and data[patient].get(day) is not None:
+                val = float(row[key])
+                new_data[patient][day][key] = val
+    file_handle.close()
+    return new_data
+
 #based on number of entires for a patient, flatten the list of data points into a single array
 #if zero_center set to True, normalize for a mean of zero
 def flatten_by_patient(data, sample_lengths, zero_center=False):
@@ -140,7 +166,7 @@ if __name__ == '__main__':
     dataset = load_update_data_dict("../data/daily_hr.csv", "mean_hr", dataset)
     dataset = load_update_data_dict("../data/daily_activity.csv", "percent_active", dataset)
     #for this, how to normalize? some people will have varying activity at baseline
-    #dataset = load_update_data_dict("../data/daily_steps.csv", "mean_steps_per_minute", dataset)
+    dataset = load_update_data_dict_fill("../data/daily_steps.csv", "mean_steps_per_minute", dataset)
     #lots of missing data points, maybe throw in something else first
     #also many instances of multiple survey results on the same day
     #dataset = load_update_data_dict("../data/mood.csv", "MOOD", dataset)
@@ -158,18 +184,18 @@ if __name__ == '__main__':
         sample_lengths.append(len(dataset[patient]))
         current_hr_vals = []
         current_activity_vals = []
-        #current_step_vals = []
+        current_step_vals = []
         #current_mood_vals = []
         days_sorted = [x for x in dataset[patient].keys()]
         days_sorted.sort()
         for day in days_sorted:
             current_hr_vals.append(dataset[patient][day]["mean_hr"])
             current_activity_vals.append(dataset[patient][day]["percent_active"])
-            #current_step_vals.append(dataset[patient][day]["mean_steps_per_minute"])
+            current_step_vals.append(dataset[patient][day]["mean_steps_per_minute"])
             #current_mood_vals.append(dataset[patient][day]["MOOD"])
         hr_vals.append(current_hr_vals)
         activity_vals.append(current_activity_vals)
-        #step_vals.append(current_step_vals)
+        step_vals.append(current_step_vals)
         #mood_vals.append(current_mood_vals)
 
     zero_centered_hr_vals_flat = flatten_by_patient(hr_vals, sample_lengths, zero_center=True)
@@ -183,9 +209,13 @@ if __name__ == '__main__':
     f = qqplot_norm(activity_vals_flat_log_transform)
     f.suptitle("activity_vals_flat_log_transform")
 
+    zero_centered_step_vals_flat = flatten_by_patient(step_vals, sample_lengths, zero_center=True)
+    f = qqplot_norm(zero_centered_step_vals_flat)
+    f.suptitle("zero_centered_step_vals_flat")
+
     plt.show(block=True)
 
-    sequence_data = np.transpose(np.vstack([zero_centered_hr_vals_flat, activity_vals_flat_log_transform]))
+    sequence_data = np.transpose(np.vstack([zero_centered_hr_vals_flat, zero_centered_step_vals_flat]))
     num_features = np.shape(sequence_data)[1]
 
     # number of models we try at each number of states
@@ -228,7 +258,7 @@ if __name__ == '__main__':
 
     states_inferred = optimal_bic_model.predict(sequence_data, sample_lengths)
     clinical_headers = ["culture_source","infection_type","infection_name","admission_reason"]
-    output_headers = ["STUDY_PRTCPT_ID","DaysFromTransplant","mean_hr","percent_active","state"] + clinical_headers
+    output_headers = ["STUDY_PRTCPT_ID","DaysFromTransplant","mean_hr","percent_active","mean_steps_per_minute","state"] + clinical_headers
     output_handle = open("../output.csv", 'w', newline='')
     output_writer = csv.DictWriter(output_handle, fieldnames=output_headers)
     output_writer.writeheader()
