@@ -176,13 +176,15 @@ if __name__ == '__main__':
         for j in range(0, sample_lengths[i]):
             activity_vals_flat.append(activity_vals[i][j])
     activity_vals_flat = np.array(activity_vals_flat)
-    #activity_vals_flat_log_transform = np.log([x+1 for x in activity_vals_flat])
+    activity_vals_flat_log_transform = np.log([x+1 for x in activity_vals_flat])
     f = qqplot_norm(activity_vals_flat)
     f.suptitle("activity_vals_flat")
+    f = qqplot_norm(activity_vals_flat_log_transform)
+    f.suptitle("activity_vals_flat_log_transform")
 
     plt.show(block=True)
 
-    sequence_data = np.transpose(np.vstack([zero_centered_hr_vals_flat, activity_vals_flat]))
+    sequence_data = np.transpose(np.vstack([zero_centered_hr_vals_flat, activity_vals_flat_log_transform]))
     num_features = np.shape(sequence_data)[1]
 
     # number of models we try at each number of states
