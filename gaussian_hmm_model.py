@@ -57,6 +57,18 @@ def bic_graph(ns, aic, bic, lls):
     f.tight_layout()
     return f
 
+def qqplot_norm(data):
+    proc_data = np.sort(data.flatten())
+    n = len(proc_data)
+    probs = np.linspace(0.5 / n, 1 - (0.5 / n), n)
+    #data_quantiles = np.quantile(proc_data, probs)
+    theoretical_quantiles = scipy.stats.norm.ppf(probs)
+    f, ax = plt.subplots()
+    ax.set_xlabel("Theoretical Quantiles")
+    ax.set_ylabel("Sample Quantiles")
+    ax.scatter(theoretical_quantiles, proc_data)
+    return f
+
 #for a specific file, column key, and previous data set, return a new data set with desired data from this file while dropping entries that are not in this file
 def load_update_data_dict(filepath, key, data):
     #data -> {patient} -> {day post-txp} -> {features}
@@ -156,12 +168,19 @@ if __name__ == '__main__':
             zero_centered_hr_vals_flat.append(hr_vals[i][j] - mean)
         zero_centered_hr_vals.append(current_vals)
     zero_centered_hr_vals_flat = np.array(zero_centered_hr_vals_flat)
+    f = qqplot_norm(zero_centered_hr_vals_flat)
+    f.suptitle("zero_centered_hr_vals_flat")
 
     activity_vals_flat = []
     for i in range(0, num_patients):
         for j in range(0, sample_lengths[i]):
             activity_vals_flat.append(activity_vals[i][j])
     activity_vals_flat = np.array(activity_vals_flat)
+    #activity_vals_flat_log_transform = np.log([x+1 for x in activity_vals_flat])
+    f = qqplot_norm(activity_vals_flat)
+    f.suptitle("activity_vals_flat")
+
+    plt.show(block=True)
 
     sequence_data = np.transpose(np.vstack([zero_centered_hr_vals_flat, activity_vals_flat]))
     num_features = np.shape(sequence_data)[1]
