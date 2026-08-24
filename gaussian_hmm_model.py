@@ -70,13 +70,13 @@ def qqplot_norm(data):
     return f
 
 #for a specific file, column key, and previous data set, return a new data set with desired data from this file while dropping entries that are not in this file
-def load_update_data_dict(filepath, key, data):
+def load_update_data_dict(filepath, key, data, cohort="Patients"):
     #data -> {patient} -> {day post-txp} -> {features}
     file_handle = open(filepath)
     file_reader = csv.DictReader(file_handle, delimiter=',')
     new_data = {}
     for row in file_reader:
-        if row["Group"] == "Patients":
+        if row["Group"] == cohort:
             patient = row["STUDY_PRTCPT_ID"]
             day = int(row["DaysFromTransplant"])
             #if there's already existing data, ensure that other data is present for this patient and day
@@ -95,7 +95,7 @@ def load_update_data_dict(filepath, key, data):
     return new_data
 
 #for a specific file, column key, and previous data set, return a new data set with desired data from this file while entries that are not in this file are set to fill=
-def load_update_data_dict_fill(filepath, key, data, fill=0):
+def load_update_data_dict_fill(filepath, key, data, fill=0, cohort="Patients"):
     new_data = {}
     #pre-fill the array
     for patient in data:
@@ -110,7 +110,7 @@ def load_update_data_dict_fill(filepath, key, data, fill=0):
     file_handle = open(filepath)
     file_reader = csv.DictReader(file_handle, delimiter=',')
     for row in file_reader:
-        if row["Group"] == "Patients":
+        if row["Group"] == cohort:
             patient = row["STUDY_PRTCPT_ID"]
             day = int(row["DaysFromTransplant"])
             #make sure we have a record for this patient-day
@@ -125,8 +125,8 @@ def load_update_data_dict_fill(filepath, key, data, fill=0):
 def flatten_by_patient(data, sample_lengths, zero_center=False):
     flattened = []
     num_patients = len(sample_lengths)
-    offset = 0
     for i in range(0, num_patients):
+        offset = 0
         if zero_center:
             offset = np.mean(data[i])
         for j in range(0, sample_lengths[i]):
@@ -163,10 +163,10 @@ def learn_model(num_states, num_features, sequence_data, sample_lengths):
 if __name__ == '__main__':
     # load and normalize per-patient data
     dataset = None
-    dataset = load_update_data_dict("../data/daily_hr.csv", "mean_hr", dataset)
-    dataset = load_update_data_dict("../data/daily_activity.csv", "percent_active", dataset)
+    dataset = load_update_data_dict("../data/daily_hr.csv", "mean_hr", dataset, cohort="Caregivers")
+    dataset = load_update_data_dict("../data/daily_activity.csv", "percent_active", dataset, cohort="Caregivers")
     #for this, how to normalize? some people will have varying activity at baseline
-    dataset = load_update_data_dict_fill("../data/daily_steps.csv", "mean_steps_per_minute", dataset)
+    dataset = load_update_data_dict_fill("../data/daily_steps.csv", "mean_steps_per_minute", dataset, cohort="Caregivers")
     #lots of missing data points, maybe throw in something else first
     #also many instances of multiple survey results on the same day
     #dataset = load_update_data_dict("../data/mood.csv", "MOOD", dataset)
@@ -326,6 +326,9 @@ if __name__ == '__main__':
     plt.show()
 
 
+# inferring a resting heart rate? (for a patient, HR when steps are 0 and activity 1) - lab has data for this already
+#   maybe normalize based on it (could be proxy for intrinsic SA nodal variability)
+# try running this overnight with a higher max_states to get a more extensive BIC survey
+# add sleep data to model - use stages (not classic) which is a more reliable algorithm from FitBit
 # try learning model on patients with or without GVHD alone; if models look very different that would suggest something can be learned
-# add mood score feature - will be discrete but could model it continuous if needed
 # also try this for caregivers as a control
