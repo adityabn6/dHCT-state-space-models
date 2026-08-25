@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
 import scipy.stats
 import multiprocessing
+from datetime import datetime, timedelta
 
 # https://hmmlearn.readthedocs.io/en/latest/auto_examples/plot_variational_inference.html
 # https://pmc.ncbi.nlm.nih.gov/articles/PMC13186999/
@@ -154,19 +155,23 @@ def load_update_clinical_outcome(filepath, day_key, data_keys, data):
     file_handle.close()
 
 def learn_model(num_states, num_features, sequence_data, sample_lengths):
+    start_time = datetime.now()
     em = hmm.GaussianHMM(num_states, n_iter=1000, covariance_type="full",implementation="scaling",tol=1e-6,verbose=False)
     em.n_features = num_features
     em.fit(sequence_data, sample_lengths)
+    end_time = datetime.now()
+    run_time = end_time - start_time
+    print("Learned model for " + str(num_states) + " states. Time: " + str(run_time.total_seconds()) + " sec.", file=sys.stderr)
     return em
 
 
 if __name__ == '__main__':
     # load and normalize per-patient data
     dataset = None
-    dataset = load_update_data_dict("../data/daily_hr.csv", "mean_hr", dataset, cohort="Caregivers")
-    dataset = load_update_data_dict("../data/daily_activity.csv", "percent_active", dataset, cohort="Caregivers")
+    dataset = load_update_data_dict("../data/daily_hr.csv", "mean_hr", dataset)
+    dataset = load_update_data_dict("../data/daily_activity.csv", "percent_active", dataset)
     #for this, how to normalize? some people will have varying activity at baseline
-    dataset = load_update_data_dict_fill("../data/daily_steps.csv", "mean_steps_per_minute", dataset, cohort="Caregivers")
+    dataset = load_update_data_dict_fill("../data/daily_steps.csv", "mean_steps_per_minute", dataset)
     #lots of missing data points, maybe throw in something else first
     #also many instances of multiple survey results on the same day
     #dataset = load_update_data_dict("../data/mood.csv", "MOOD", dataset)
