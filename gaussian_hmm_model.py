@@ -71,13 +71,13 @@ def qqplot_norm(data):
     return f
 
 #for a specific file, column key, and previous data set, return a new data set with desired data from this file while dropping entries that are not in this file
-def load_update_data_dict(filepath, key, data, cohort="Patients"):
+def load_update_data_dict(filepath, key, data, cohort=["Patients"]):
     #data -> {patient} -> {day post-txp} -> {features}
     file_handle = open(filepath)
     file_reader = csv.DictReader(file_handle, delimiter=',')
     new_data = {}
     for row in file_reader:
-        if row["Group"] == cohort:
+        if row["Group"] in cohort:
             patient = row["STUDY_PRTCPT_ID"]
             day = int(row["DaysFromTransplant"])
             #if there's already existing data, ensure that other data is present for this patient and day
@@ -96,7 +96,7 @@ def load_update_data_dict(filepath, key, data, cohort="Patients"):
     return new_data
 
 #for a specific file, column key, and previous data set, return a new data set with desired data from this file while entries that are not in this file are set to fill=
-def load_update_data_dict_fill(filepath, key, data, fill=0, cohort="Patients"):
+def load_update_data_dict_fill(filepath, key, data, fill=0, cohort=["Patients"]):
     new_data = {}
     #pre-fill the array
     for patient in data:
@@ -111,7 +111,7 @@ def load_update_data_dict_fill(filepath, key, data, fill=0, cohort="Patients"):
     file_handle = open(filepath)
     file_reader = csv.DictReader(file_handle, delimiter=',')
     for row in file_reader:
-        if row["Group"] == cohort:
+        if row["Group"] in cohort:
             patient = row["STUDY_PRTCPT_ID"]
             day = int(row["DaysFromTransplant"])
             #make sure we have a record for this patient-day
@@ -168,10 +168,10 @@ def learn_model(num_states, num_features, sequence_data, sample_lengths):
 if __name__ == '__main__':
     # load and normalize per-patient data
     dataset = None
-    dataset = load_update_data_dict("../data/daily_hr.csv", "mean_hr", dataset)
-    dataset = load_update_data_dict("../data/daily_activity.csv", "percent_active", dataset)
+    dataset = load_update_data_dict("../data/daily_hr.csv", "mean_hr", dataset, cohort=["Patients","Caregivers"])
+    dataset = load_update_data_dict("../data/daily_activity.csv", "percent_active", dataset, cohort=["Patients","Caregivers"])
     #for this, how to normalize? some people will have varying activity at baseline
-    dataset = load_update_data_dict_fill("../data/daily_steps.csv", "mean_steps_per_minute", dataset)
+    dataset = load_update_data_dict_fill("../data/daily_steps.csv", "mean_steps_per_minute", dataset, cohort=["Patients","Caregivers"])
     #lots of missing data points, maybe throw in something else first
     #also many instances of multiple survey results on the same day
     #dataset = load_update_data_dict("../data/mood.csv", "MOOD", dataset)
