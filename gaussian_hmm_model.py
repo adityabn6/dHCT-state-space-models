@@ -6,6 +6,7 @@ import csv
 import sys
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
+import matplotlib
 import scipy.stats
 import multiprocessing
 from datetime import datetime, timedelta
@@ -164,6 +165,72 @@ def learn_model(num_states, num_features, sequence_data, sample_lengths):
     print("Learned model for " + str(num_states) + " states. Time: " + str(run_time.total_seconds()) + " sec.", file=sys.stderr)
     return em
 
+def extract_paired_dist(means, cov, i, j):
+    pair_means = np.transpose(np.vstack([means[:,i],means[:,j]]))
+    pair_cov = np.array([x[np.ix_([i,j],[i,j])] for x in cov])
+    return pair_means, pair_cov
+
+def multi_gaussian_3d_plot(means, cov):
+    num_states = means.shape[0]
+    models = []
+    s_min_x = None
+    s_max_x = None
+    s_min_y = None
+    s_max_y = None
+    for i in range(num_states):
+        model = scipy.stats.multivariate_normal(means[i], cov[i], allow_singular=True)
+        models.append(model)
+        x_min = means[i][0] - 20 #(10 * cov[i][0][0])
+        x_max = means[i][0] + 20 #(10 * cov[i][0][0])
+        y_min = means[i][1] - 20 #(10 * cov[i][1][1])
+        y_max = means[i][1] + 20 #(10 * cov[i][1][1])
+        if s_min_x is None or x_min < s_min_x:
+            s_min_x = x_min
+        if s_max_x is None or x_max < s_max_x:
+            s_max_x = x_max
+        if s_min_y is None or y_min < s_min_y:
+            s_min_y = y_min
+        if s_max_y is None or y_max < s_max_y:
+            s_max_y = y_max
+    x_points = np.linspace(s_min_x, s_max_x, 100)
+    y_points = np.linspace(s_min_y, s_max_y, 100)
+    X, Y = np.meshgrid(x_points, y_points)
+    z_val = np.zeros(len(x_points) * len(y_points)).reshape(len(x_points), len(y_points))
+    z_max = 0
+    color_val = np.zeros(len(x_points) * len(y_points)).reshape(len(x_points), len(y_points))
+    for i in range(0, len(x_points)):
+        for j in range(0, len(y_points)):
+            x = x_points[i]
+            y = y_points[j]
+            max_val = 0
+            max_idx = None
+            for k in range(0, num_states):
+                val = models[k].pdf([x, y])
+                if val > max_val:
+                    max_val = val
+                    max_idx = k
+            if max_val > 0.0001:
+                color_val[i,j] = max_idx + 1
+            else:
+                color_val[i,j] = 0
+            z_val[i,j] = max_val
+            if max_val > z_max:
+                z_max = max_val
+    norm = plt.Normalize(0, num_states)
+    cm = matplotlib.colormaps['tab20']
+    rgba_colors = cm(norm(color_val))
+    f = plt.figure(figsize=(10,7))
+    ax = f.add_subplot(projection='3d')
+    surf = ax.plot_surface(X, Y, z_val, facecolors=rgba_colors, linewidth=0, antialiased=True, shade=False)
+    ax.set_xlim(s_min_x, s_max_x)
+    ax.set_ylim(s_min_y, s_max_y)
+    ax.set_zlim(0, z_max)
+    ax.set_xlabel("Feature 0")
+    ax.set_ylabel("Feature 1")
+    mappable = matplotlib.cm.ScalarMappable(norm=norm, cmap=cm)
+    mappable.set_array(color_val)
+    f.colorbar(mappable, ax=ax, shrink=0.5, aspect=10, label='State')
+    return f
 
 if __name__ == '__main__':
     # load and normalize per-patient data
