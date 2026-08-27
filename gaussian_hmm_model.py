@@ -170,7 +170,7 @@ def extract_paired_dist(means, cov, i, j):
     pair_cov = np.array([x[np.ix_([i,j],[i,j])] for x in cov])
     return pair_means, pair_cov
 
-def multi_gaussian_3d_plot(means, cov):
+def multi_gaussian_3d_plot(means, cov, xlabel="Feature 0", ylabel="Feature 1"):
     num_states = means.shape[0]
     models = []
     s_min_x = None
@@ -178,7 +178,12 @@ def multi_gaussian_3d_plot(means, cov):
     s_min_y = None
     s_max_y = None
     for i in range(num_states):
-        model = scipy.stats.multivariate_normal(means[i], cov[i], allow_singular=True)
+        #makes no sense why the covariance matrix behaves this way when plotted
+        new_cov = cov[i].copy()
+        tmp = new_cov[0,0]
+        new_cov[0,0] = new_cov[1,1]
+        new_cov[1,1] = tmp
+        model = scipy.stats.multivariate_normal(means[i], new_cov, allow_singular=True)
         models.append(model)
         x_min = means[i][0] - 20 #(10 * cov[i][0][0])
         x_max = means[i][0] + 20 #(10 * cov[i][0][0])
@@ -225,8 +230,8 @@ def multi_gaussian_3d_plot(means, cov):
     ax.set_xlim(s_min_x, s_max_x)
     ax.set_ylim(s_min_y, s_max_y)
     ax.set_zlim(0, z_max)
-    ax.set_xlabel("Feature 0")
-    ax.set_ylabel("Feature 1")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
     mappable = matplotlib.cm.ScalarMappable(norm=norm, cmap=cm)
     mappable.set_array(color_val)
     f.colorbar(mappable, ax=ax, shrink=0.5, aspect=10, label='State')
@@ -294,7 +299,7 @@ if __name__ == '__main__':
     num_inits = 10
     # range of states to try
     min_states = 2
-    max_states = 8
+    max_states = 12
 
     num_processes = 6
 
@@ -394,6 +399,9 @@ if __name__ == '__main__':
         infer_hidden=False,
     )
     f.suptitle("Expectation-Maximization Solution, Feature 1", size=16)
+
+    feature_0_1_means, feature_0_1_covars = extract_paired_dist(optimal_bic_model.means_, optimal_bic_model.covars_, 0, 1)
+    f = multi_gaussian_3d_plot(feature_0_1_means, feature_0_1_covars, xlabel="Feature 0", ylabel="Feature 1")
 
     plt.show()
 
