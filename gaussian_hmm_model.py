@@ -178,12 +178,7 @@ def multi_gaussian_3d_plot(means, cov, xlabel="Feature 0", ylabel="Feature 1"):
     s_min_y = None
     s_max_y = None
     for i in range(num_states):
-        #makes no sense why the covariance matrix behaves this way when plotted
-        new_cov = cov[i].copy()
-        tmp = new_cov[0,0]
-        new_cov[0,0] = new_cov[1,1]
-        new_cov[1,1] = tmp
-        model = scipy.stats.multivariate_normal(means[i], new_cov, allow_singular=True)
+        model = scipy.stats.multivariate_normal(means[i], cov[i], allow_singular=True)
         models.append(model)
         x_min = means[i][0] - 20 #(10 * cov[i][0][0])
         x_max = means[i][0] + 20 #(10 * cov[i][0][0])
@@ -191,22 +186,22 @@ def multi_gaussian_3d_plot(means, cov, xlabel="Feature 0", ylabel="Feature 1"):
         y_max = means[i][1] + 20 #(10 * cov[i][1][1])
         if s_min_x is None or x_min < s_min_x:
             s_min_x = x_min
-        if s_max_x is None or x_max < s_max_x:
+        if s_max_x is None or x_max > s_max_x:
             s_max_x = x_max
         if s_min_y is None or y_min < s_min_y:
             s_min_y = y_min
-        if s_max_y is None or y_max < s_max_y:
+        if s_max_y is None or y_max > s_max_y:
             s_max_y = y_max
     x_points = np.linspace(s_min_x, s_max_x, 100)
     y_points = np.linspace(s_min_y, s_max_y, 100)
     X, Y = np.meshgrid(x_points, y_points)
-    z_val = np.zeros(len(x_points) * len(y_points)).reshape(len(x_points), len(y_points))
+    z_val = np.zeros(len(y_points) * len(x_points)).reshape(len(y_points), len(x_points))
     z_max = 0
-    color_val = np.zeros(len(x_points) * len(y_points)).reshape(len(x_points), len(y_points))
-    for i in range(0, len(x_points)):
-        for j in range(0, len(y_points)):
-            x = x_points[i]
-            y = y_points[j]
+    color_val = np.zeros(len(y_points) * len(x_points)).reshape(len(y_points), len(x_points))
+    for i in range(0, len(y_points)):
+        for j in range(0, len(x_points)):
+            x = X[i,j]
+            y = Y[i,j]
             max_val = 0
             max_idx = None
             for k in range(0, num_states):
