@@ -1,7 +1,9 @@
 #!/bin/python
 
 import numpy as np
-from hmmlearn import hmm
+#from hmmlearn import hmm
+# needs GitHub version of PyHHMM (commit 6c2eae1 fixes an issue with seaborn compatibility)
+from pyhhmm.gaussian import GaussianHMM
 import csv
 import sys
 import matplotlib.pyplot as plt
@@ -10,6 +12,7 @@ import matplotlib
 import scipy.stats
 import multiprocessing
 from datetime import datetime, timedelta
+
 
 # https://hmmlearn.readthedocs.io/en/latest/auto_examples/plot_variational_inference.html
 # https://github.com/fmorenopino/heterogeneoushmm - could allow us to address the missing values more directly
@@ -44,185 +47,6 @@ def gaussian_hinton_diagram(startprob, transmat, means, variances, vmin=0, vmax=
     ax.legend(loc="best")
     f.tight_layout()
     return f
-
-def bic_graph(ns, aic, bic, lls):
-    f, ax = plt.subplots()
-    ln1 = ax.plot(ns, aic, label="AIC", color="blue", marker="o")
-    ln2 = ax.plot(ns, bic, label="BIC", color="green", marker="o")
-    ax2 = ax.twinx()
-    ln3 = ax2.plot(ns, lls, label="LL", color="orange", marker="o")
-
-    ax.legend(handles=ax.lines + ax2.lines)
-    ax.set_title("Using AIC/BIC for Model Selection")
-    ax.set_ylabel("Criterion Value (lower is better)")
-    ax2.set_ylabel("LL (higher is better)")
-    ax.set_xlabel("Number of HMM Components")
-    f.tight_layout()
-    return f
-
-def qqplot_norm(data):
-    proc_data = np.sort(data.flatten())
-    n = len(proc_data)
-    probs = np.linspace(0.5 / n, 1 - (0.5 / n), n)
-    #data_quantiles = np.quantile(proc_data, probs)
-    theoretical_quantiles = scipy.stats.norm.ppf(probs)
-    f, ax = plt.subplots()
-    ax.set_xlabel("Theoretical Quantiles")
-    ax.set_ylabel("Sample Quantiles")
-    ax.scatter(theoretical_quantiles, proc_data)
-    return f
-
-#for a specific file, column key, and previous data set, return a new data set with desired data from this file while dropping entries that are not in this file
-def load_update_data_dict(filepath, key, data, cohort=["Patients"]):
-    #data -> {patient} -> {day post-txp} -> {features}
-    file_handle = open(filepath)
-    file_reader = csv.DictReader(file_handle, delimiter=',')
-    new_data = {}
-    for row in file_reader:
-        if row["Group"] in cohort:
-            patient = row["STUDY_PRTCPT_ID"]
-            day = int(row["DaysFromTransplant"])
-            #if there's already existing data, ensure that other data is present for this patient and day
-            #eventually would want to look into missing value imputation upstream of this script
-            if data is not None and (data.get(patient) is None or data[patient].get(day) is None):
-                continue
-            if patient not in new_data:
-                new_data[patient] = {}
-            new_data[patient][day] = {}
-            if data is not None:
-                for k, v in data[patient][day].items():
-                    new_data[patient][day][k] = v
-            val = float(row[key])
-            new_data[patient][day][key] = val
-    file_handle.close()
-    return new_data
-
-#for a specific file, column key, and previous data set, return a new data set with desired data from this file while entries that are not in this file are set to fill=
-def load_update_data_dict_fill(filepath, key, data, fill=0, cohort=["Patients"]):
-    new_data = {}
-    #pre-fill the array
-    for patient in data:
-        for day in data[patient]:
-            if patient not in new_data:
-                new_data[patient] = {}
-            new_data[patient][day] = {}
-            for k, v in data[patient][day].items():
-                new_data[patient][day][k] = v
-            new_data[patient][day][key] = fill
-    #then overwrite pre-filled values with whatever's in the input file
-    file_handle = open(filepath)
-    file_reader = csv.DictReader(file_handle, delimiter=',')
-    for row in file_reader:
-        if row["Group"] in cohort:
-            patient = row["STUDY_PRTCPT_ID"]
-            day = int(row["DaysFromTransplant"])
-            #make sure we have a record for this patient-day
-            if data.get(patient) is not None and data[patient].get(day) is not None:
-                val = float(row[key])
-                new_data[patient][day][key] = val
-    file_handle.close()
-    return new_data
-
-#based on number of entires for a patient, flatten the list of data points into a single array
-#if zero_center set to True, normalize for a mean of zero
-def flatten_by_patient(data, sample_lengths, zero_center=False):
-    flattened = []
-    num_patients = len(sample_lengths)
-    for i in range(0, num_patients):
-        offset = 0
-        if zero_center:
-            offset = np.mean(data[i])
-        for j in range(0, sample_lengths[i]):
-            flattened.append(data[i][j] - offset)
-    flattened = np.array(flattened)
-    return flattened
-
-#this updates data in place
-def load_update_clinical_outcome(filepath, day_key, data_keys, data):
-    #data -> {patient} -> {day post-txp} -> {features}
-    file_handle = open(filepath)
-    file_reader = csv.DictReader(file_handle, delimiter=',')
-    for row in file_reader:
-        patient = row["STUDY_PRTCPT_ID"]
-        try:
-            day = int(row[day_key])
-            if data.get(patient) is None:
-                data[patient] = {}
-            if data[patient].get(day) is None:
-                data[patient][day] = {}
-            for key in data_keys:
-                data[patient][day][key] = row[key]
-        except ValueError:
-            pass
-    file_handle.close()
-
-#find the maximum post-txp day for each patient in an input CSV
-#if already provided a dict of post-txp days will return a dict of the maximum day between either the input CSV or the input
-def update_max_day(filepath, max_post_txp_day = None, cohort=["Patients"]):
-    new_max_post_txp_day = {}
-    if max_post_txp_day is not None:
-        for patient, day in max_post_txp_day.items():
-            new_max_post_txp_day[patient] = day
-    file_handle = open(filepath)
-    file_reader = csv.DictReader(file_handle, delimiter=',')
-    for row in file_reader:
-        if row["Group"] in cohort:
-            patient = row["STUDY_PRTCPT_ID"]
-            if patient not in new_max_post_txp_day:
-                new_max_post_txp_day[patient] = 0
-            day = int(row["DaysFromTransplant"])
-            if day > new_max_post_txp_day[patient]:
-                new_max_post_txp_day[patient] = day
-    file_handle.close()
-    return new_max_post_txp_day
-
-def init_data(max_post_txp_day):
-    data = {}
-    for k, v in max_post_txp_day.items():
-        data[k] = {}
-        for i in range(0, v+1):
-            data[k][i] = {}
-    return data
-
-def load_update_data_dict_sparse(filepath, key, data, fill=None, aggregate_func = lambda x: sum(x) / len(x)):
-    #pre-fill the dict
-    for patient in data:
-        for day in data[patient]:
-            data[patient][day][key] = fill
-    file_handle = open(filepath)
-    file_reader = csv.DictReader(file_handle, delimiter=',')
-    sparse_data = {}
-    for row in file_reader:
-        patient = row["STUDY_PRTCPT_ID"]
-        day = int(row["DaysFromTransplant"])
-        if patient not in sparse_data:
-            sparse_data[patient] = {}
-        if day not in sparse_data[patient]:
-            sparse_data[patient][day] = []
-        val = float(row[key])
-        sparse_data[patient][day].append(val)
-    file_handle.close()
-    for patient in sparse_data:
-        #don't register new patients
-        if patient in data:
-            for day in sparse_data[patient]:
-                val = aggregate_func(sparse_data[patient][day])
-                data[patient][day][key] = val
-
-def learn_model(num_states, num_features, sequence_data, sample_lengths):
-    start_time = datetime.now()
-    em = hmm.GaussianHMM(num_states, n_iter=1000, covariance_type="full",implementation="scaling",tol=1e-6,verbose=False)
-    em.n_features = num_features
-    em.fit(sequence_data, sample_lengths)
-    end_time = datetime.now()
-    run_time = end_time - start_time
-    print("Learned model for " + str(num_states) + " states. Time: " + str(run_time.total_seconds()) + " sec.", file=sys.stderr)
-    return em
-
-def extract_paired_dist(means, cov, i, j):
-    pair_means = np.transpose(np.vstack([means[:,i],means[:,j]]))
-    pair_cov = np.array([x[np.ix_([i,j],[i,j])] for x in cov])
-    return pair_means, pair_cov
 
 def multi_gaussian_3d_plot(means, cov, xlabel="Feature 0", ylabel="Feature 1"):
     num_states = means.shape[0]
@@ -286,6 +110,209 @@ def multi_gaussian_3d_plot(means, cov, xlabel="Feature 0", ylabel="Feature 1"):
     f.colorbar(mappable, ax=ax, shrink=0.5, aspect=10, label='State')
     return f
 
+def bic_graph(ns, aic, bic, lls):
+    f, ax = plt.subplots()
+    ln1 = ax.plot(ns, aic, label="AIC", color="blue", marker="o")
+    ln2 = ax.plot(ns, bic, label="BIC", color="green", marker="o")
+    ax2 = ax.twinx()
+    ln3 = ax2.plot(ns, lls, label="LL", color="orange", marker="o")
+
+    ax.legend(handles=ax.lines + ax2.lines)
+    ax.set_title("Using AIC/BIC for Model Selection")
+    ax.set_ylabel("Criterion Value (lower is better)")
+    ax2.set_ylabel("LL (higher is better)")
+    ax.set_xlabel("Number of HMM Components")
+    f.tight_layout()
+    return f
+
+def qqplot_norm(data):
+    proc_data = np.sort(np.array(data).flatten())
+    n = len(proc_data)
+    probs = np.linspace(0.5 / n, 1 - (0.5 / n), n)
+    #data_quantiles = np.quantile(proc_data, probs)
+    theoretical_quantiles = scipy.stats.norm.ppf(probs)
+    f, ax = plt.subplots()
+    ax.set_xlabel("Theoretical Quantiles")
+    ax.set_ylabel("Sample Quantiles")
+    ax.scatter(theoretical_quantiles, proc_data)
+    return f
+
+#for a specific file, column key, and previous data set, return a new data set with desired data from this file while dropping entries that are not in this file
+def load_update_data_dict(filepath, key, data, cohort=["Patients"]):
+    #data -> {patient} -> {day post-txp} -> {features}
+    file_handle = open(filepath)
+    file_reader = csv.DictReader(file_handle, delimiter=',')
+    new_data = {}
+    for row in file_reader:
+        if row["Group"] in cohort:
+            patient = row["STUDY_PRTCPT_ID"]
+            day = int(row["DaysFromTransplant"])
+            #if there's already existing data, ensure that other data is present for this patient and day
+            #eventually would want to look into missing value imputation upstream of this script
+            if data is not None and (data.get(patient) is None or data[patient].get(day) is None):
+                continue
+            if patient not in new_data:
+                new_data[patient] = {}
+            new_data[patient][day] = {}
+            if data is not None:
+                for k, v in data[patient][day].items():
+                    new_data[patient][day][k] = v
+            val = float(row[key])
+            new_data[patient][day][key] = val
+    file_handle.close()
+    return new_data
+
+#for a specific file, column key, and previous data set, return a new data set with desired data from this file while entries that are not in this file are set to fill=
+def load_update_data_dict_fill(filepath, key, data, fill=0, cohort=["Patients"]):
+    new_data = {}
+    #pre-fill the array
+    for patient in data:
+        for day in data[patient]:
+            if patient not in new_data:
+                new_data[patient] = {}
+            new_data[patient][day] = {}
+            for k, v in data[patient][day].items():
+                new_data[patient][day][k] = v
+            new_data[patient][day][key] = fill
+    #then overwrite pre-filled values with whatever's in the input file
+    file_handle = open(filepath)
+    file_reader = csv.DictReader(file_handle, delimiter=',')
+    for row in file_reader:
+        if row["Group"] in cohort:
+            patient = row["STUDY_PRTCPT_ID"]
+            day = int(row["DaysFromTransplant"])
+            #make sure we have a record for this patient-day
+            if data.get(patient) is not None and data[patient].get(day) is not None:
+                val = float(row[key])
+                new_data[patient][day][key] = val
+    file_handle.close()
+    return new_data
+
+#pull out all values in a data set for a particular key into an array
+#for use when aggregate metrics are needed, e.g. QC, Q-Q plots, etc.
+#no guarantees are made regarding patient order
+#if patients is specified, limit to those patients
+def extract_by_key(data, key, skip_nan=True, patients=None):
+    extract = []
+    patients_to_include = data.keys()
+    if patients is not None:
+        patients_to_include = patients
+    for patient in patients_to_include:
+        for day in data[patient]:
+            val = data[patient][day][key]
+            if not (skip_nan and val is np.nan):
+                extract.append(val)
+    return extract
+
+#standardize data per-patient based on desired statistical parameters
+#to get z-scores, set mean=0 and sd=1
+#if mean or SD is none, they are ignored
+def standardize_by_patient_and_key(data, key, mean=None, std=None):
+    for patient in data:
+        mean_correct_factor = 0
+        stdev_correct_factor = 1.0
+        vals = np.array(extract_by_key(data, key, patients=[patient]))
+        if mean is not None:
+            mean_correct_factor = np.mean(vals) - mean
+        if std is not None:
+            stdev_correct_factor = np.std(vals) / std
+        for day in data[patient]:
+            data[patient][day][key] = (data[patient][day][key] - mean_correct_factor) / stdev_correct_factor
+
+#apply a function to every value in the dataset for a specified key
+def apply_function_by_patient(data, key, func):
+    for patient in data:
+        for day in data[patient]:
+            if data[patient][day][key] is not np.nan:
+                data[patient][day][key] = func(data[patient][day][key])
+
+#this updates data in place
+def load_update_clinical_outcome(filepath, day_key, data_keys, data):
+    #data -> {patient} -> {day post-txp} -> {features}
+    file_handle = open(filepath)
+    file_reader = csv.DictReader(file_handle, delimiter=',')
+    for row in file_reader:
+        patient = row["STUDY_PRTCPT_ID"]
+        try:
+            day = int(row[day_key])
+            if data.get(patient) is None:
+                data[patient] = {}
+            if data[patient].get(day) is None:
+                data[patient][day] = {}
+            for key in data_keys:
+                data[patient][day][key] = row[key]
+        except ValueError:
+            pass
+    file_handle.close()
+
+#find the maximum post-txp day for each patient in an input CSV
+#if already provided a dict of post-txp days will return a dict of the maximum day between either the input CSV or the input
+def update_max_day(filepath, max_post_txp_day = None, cohort=["Patients"]):
+    new_max_post_txp_day = {}
+    if max_post_txp_day is not None:
+        for patient, day in max_post_txp_day.items():
+            new_max_post_txp_day[patient] = day
+    file_handle = open(filepath)
+    file_reader = csv.DictReader(file_handle, delimiter=',')
+    for row in file_reader:
+        if row["Group"] in cohort:
+            patient = row["STUDY_PRTCPT_ID"]
+            if patient not in new_max_post_txp_day:
+                new_max_post_txp_day[patient] = 0
+            day = int(row["DaysFromTransplant"])
+            if day > new_max_post_txp_day[patient]:
+                new_max_post_txp_day[patient] = day
+    file_handle.close()
+    return new_max_post_txp_day
+
+def init_data(max_post_txp_day):
+    data = {}
+    for k, v in max_post_txp_day.items():
+        data[k] = {}
+        for i in range(0, v+1):
+            data[k][i] = {}
+    return data
+
+def load_update_data_dict_sparse(filepath, key, data, fill=np.nan, aggregate_func = lambda x: sum(x) / len(x)):
+    #pre-fill the dict
+    for patient in data:
+        for day in data[patient]:
+            data[patient][day][key] = fill
+    file_handle = open(filepath)
+    file_reader = csv.DictReader(file_handle, delimiter=',')
+    sparse_data = {}
+    for row in file_reader:
+        patient = row["STUDY_PRTCPT_ID"]
+        day = int(row["DaysFromTransplant"])
+        if patient not in sparse_data:
+            sparse_data[patient] = {}
+        if day not in sparse_data[patient]:
+            sparse_data[patient][day] = []
+        val = float(row[key])
+        sparse_data[patient][day].append(val)
+    file_handle.close()
+    for patient in sparse_data:
+        #don't register new patients
+        if patient in data:
+            for day in sparse_data[patient]:
+                val = aggregate_func(sparse_data[patient][day])
+                data[patient][day][key] = val
+
+def learn_model(num_states, num_features, sequence_data, sample_lengths):
+    start_time = datetime.now()
+    em = hmm.GaussianHMM(num_states, n_iter=1000, covariance_type="full",implementation="scaling",tol=1e-6,verbose=False)
+    em.n_features = num_features
+    em.fit(sequence_data, sample_lengths)
+    end_time = datetime.now()
+    run_time = end_time - start_time
+    print("Learned model for " + str(num_states) + " states. Time: " + str(run_time.total_seconds()) + " sec.", file=sys.stderr)
+    return em
+
+def extract_paired_dist(means, cov, i, j):
+    pair_means = np.transpose(np.vstack([means[:,i],means[:,j]]))
+    pair_cov = np.array([x[np.ix_([i,j],[i,j])] for x in cov])
+    return pair_means, pair_cov
+
 if __name__ == '__main__':
     # load and normalize per-patient data
     dataset = None
@@ -301,45 +328,39 @@ if __name__ == '__main__':
     patients_sorted.sort()
     num_patients = len(dataset)
 
-    sample_lengths = []
-    hr_vals = []
-    activity_vals = []
-    step_vals = []
-    mood_vals = []
-    for patient in patients_sorted:
-        sample_lengths.append(len(dataset[patient]))
-        current_hr_vals = []
-        current_activity_vals = []
-        current_step_vals = []
-        #current_mood_vals = []
-        days_sorted = [x for x in dataset[patient].keys()]
-        days_sorted.sort()
-        for day in days_sorted:
-            current_hr_vals.append(dataset[patient][day]["mean_hr"])
-            current_activity_vals.append(dataset[patient][day]["percent_active"])
-            current_step_vals.append(dataset[patient][day]["mean_steps_per_minute"])
-            #current_mood_vals.append(dataset[patient][day]["MOOD"])
-        hr_vals.append(current_hr_vals)
-        activity_vals.append(current_activity_vals)
-        step_vals.append(current_step_vals)
-        #mood_vals.append(current_mood_vals)
+    hr_vals_flat = extract_by_key(dataset, "mean_hr")
+    f = qqplot_norm(hr_vals_flat)
+    f.suptitle("Daily average HR")
 
-    zero_centered_hr_vals_flat = flatten_by_patient(hr_vals, sample_lengths, zero_center=True)
-    f = qqplot_norm(zero_centered_hr_vals_flat)
-    f.suptitle("zero_centered_hr_vals_flat")
-
-    activity_vals_flat = flatten_by_patient(activity_vals, sample_lengths)
+    activity_vals_flat = extract_by_key(dataset, "percent_active")
     f = qqplot_norm(activity_vals_flat)
-    f.suptitle("activity_vals_flat")
-    activity_vals_flat_log_transform = np.log([x+1 for x in activity_vals_flat])
-    f = qqplot_norm(activity_vals_flat_log_transform)
-    f.suptitle("activity_vals_flat_log_transform")
+    f.suptitle("Percent active")
 
-    zero_centered_step_vals_flat = flatten_by_patient(step_vals, sample_lengths, zero_center=True)
+    step_vals_flat = extract_by_key(dataset, "mean_steps_per_minute")
+    f = qqplot_norm(step_vals_flat)
+    f.suptitle("Daily steps")
+
+    #zero-center HR
+    standardize_by_patient_and_key(dataset, "mean_hr", mean=0)
+    hr_vals_flat = extract_by_key(dataset, "mean_hr")
+    f = qqplot_norm(hr_vals_flat)
+    f.suptitle("Zero-centered daily HR")
+
+    #log-transform activity values
+    apply_function_by_patient(dataset, "percent_active", lambda x: np.log(x+1))
+    activity_vals_flat_log_transform = extract_by_key(dataset, "percent_active")
+    f = qqplot_norm(activity_vals_flat_log_transform)
+    f.suptitle("Log-transformed percent active")
+
+    #zero-center steps
+    standardize_by_patient_and_key(dataset, "mean_steps_per_minute", mean=0)
+    zero_centered_step_vals_flat = extract_by_key(dataset, "mean_steps_per_minute")
     f = qqplot_norm(zero_centered_step_vals_flat)
-    f.suptitle("zero_centered_step_vals_flat")
+    f.suptitle("Zero-centered daily steps")
 
     plt.show(block=True)
+    sys.exit()
+
 
     sequence_data = np.transpose(np.vstack([zero_centered_hr_vals_flat, zero_centered_step_vals_flat]))
     num_features = np.shape(sequence_data)[1]
