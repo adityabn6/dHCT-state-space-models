@@ -12,6 +12,7 @@ import multiprocessing
 from datetime import datetime, timedelta
 
 # https://hmmlearn.readthedocs.io/en/latest/auto_examples/plot_variational_inference.html
+# https://github.com/fmorenopino/heterogeneoushmm - could allow us to address the missing values more directly
 # https://pmc.ncbi.nlm.nih.gov/articles/PMC13186999/
 # https://deepblue.lib.umich.edu/data/concern/data_sets/ht24wk394?locale=en
 
@@ -155,6 +156,59 @@ def load_update_clinical_outcome(filepath, day_key, data_keys, data):
             pass
     file_handle.close()
 
+#find the maximum post-txp day for each patient in an input CSV
+#if already provided a dict of post-txp days will return a dict of the maximum day between either the input CSV or the input
+def update_max_day(filepath, max_post_txp_day = None, cohort=["Patients"]):
+    new_max_post_txp_day = {}
+    if max_post_txp_day is not None:
+        for patient, day in max_post_txp_day.items():
+            new_max_post_txp_day[patient] = day
+    file_handle = open(filepath)
+    file_reader = csv.DictReader(file_handle, delimiter=',')
+    for row in file_reader:
+        if row["Group"] in cohort:
+            patient = row["STUDY_PRTCPT_ID"]
+            if patient not in new_max_post_txp_day:
+                new_max_post_txp_day[patient] = 0
+            day = int(row["DaysFromTransplant"])
+            if day > new_max_post_txp_day[patient]:
+                new_max_post_txp_day[patient] = day
+    file_handle.close()
+    return new_max_post_txp_day
+
+def init_data(max_post_txp_day):
+    data = {}
+    for k, v in max_post_txp_day.items():
+        data[k] = {}
+        for i in range(0, v+1):
+            data[k][i] = {}
+    return data
+
+def load_update_data_dict_sparse(filepath, key, data, fill=None, aggregate_func = lambda x: sum(x) / len(x)):
+    #pre-fill the dict
+    for patient in data:
+        for day in data[patient]:
+            data[patient][day][key] = fill
+    file_handle = open(filepath)
+    file_reader = csv.DictReader(file_handle, delimiter=',')
+    sparse_data = {}
+    for row in file_reader:
+        patient = row["STUDY_PRTCPT_ID"]
+        day = int(row["DaysFromTransplant"])
+        if patient not in sparse_data:
+            sparse_data[patient] = {}
+        if day not in sparse_data[patient]:
+            sparse_data[patient][day] = []
+        val = float(row[key])
+        sparse_data[patient][day].append(val)
+    file_handle.close()
+    for patient in sparse_data:
+        #don't register new patients
+        if patient in data:
+            for day in sparse_data[patient]:
+                val = aggregate_func(sparse_data[patient][day])
+                data[patient][day][key] = val
+
 def learn_model(num_states, num_features, sequence_data, sample_lengths):
     start_time = datetime.now()
     em = hmm.GaussianHMM(num_states, n_iter=1000, covariance_type="full",implementation="scaling",tol=1e-6,verbose=False)
@@ -294,7 +348,7 @@ if __name__ == '__main__':
     num_inits = 10
     # range of states to try
     min_states = 2
-    max_states = 12
+    max_states = 8
 
     num_processes = 6
 
@@ -407,3 +461,4 @@ if __name__ == '__main__':
 # add sleep data to model - use stages (not classic) which is a more reliable algorithm from FitBit
 # try learning model on patients with or without GVHD alone; if models look very different that would suggest something can be learned
 # also try this for caregivers as a control
+# if switching to PyHMM for missing value support, would need some QC (min observations, max % missing values)
