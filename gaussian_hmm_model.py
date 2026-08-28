@@ -4,6 +4,7 @@ import numpy as np
 #from hmmlearn import hmm
 # needs GitHub version of PyHHMM (commit 6c2eae1 fixes an issue with seaborn compatibility)
 from pyhhmm.gaussian import GaussianHMM
+import pyhhmm.utils
 import csv
 import sys
 import matplotlib.pyplot as plt
@@ -298,15 +299,35 @@ def load_update_data_dict_sparse(filepath, key, data, fill=np.nan, aggregate_fun
                 val = aggregate_func(sparse_data[patient][day])
                 data[patient][day][key] = val
 
-def learn_model(num_states, num_features, sequence_data, sample_lengths):
+#generate an array of length num_patients containing (patient_days x features)
+#can specify a patient ordering
+def package_observations_for_model(data, keys, patient_ordering=None):
+    output = []
+    num_features = len(keys)
+    patients_ordered = data.keys()
+    if patient_ordering is not None:
+        patients_ordered = patient_ordering
+    for patient in patients_ordered:
+        num_days = len(data[patient])
+        feature_mat = np.zeros(num_days * num_features).reshape(num_days, num_features)
+        day_idx = 0
+        days_sorted = [x for x in data[patient]]
+        days_sorted.sort()
+        for day in days_sorted:
+            for i in range(0, num_features):
+                feature_mat[day_idx, i] = data[patient][day][keys[i]]
+            day_idx = day_idx + 1
+        output.append(feature_mat)
+    return(output)
+
+def learn_model(num_states, num_features, sequence_data, n_iter=100):
     start_time = datetime.now()
-    em = hmm.GaussianHMM(num_states, n_iter=1000, covariance_type="full",implementation="scaling",tol=1e-6,verbose=False)
-    em.n_features = num_features
-    em.fit(sequence_data, sample_lengths)
+    em = GaussianHMM(n_states=num_states, n_emissions=num_features, covariance_type="full")
+    em, log_likelihood = em.train(sequence_data, n_init=1, n_iter=n_iter, conv_thresh=0.001, conv_iter=5)
     end_time = datetime.now()
     run_time = end_time - start_time
     print("Learned model for " + str(num_states) + " states. Time: " + str(run_time.total_seconds()) + " sec.", file=sys.stderr)
-    return em
+    return (em, log_likelihood)
 
 def extract_paired_dist(means, cov, i, j):
     pair_means = np.transpose(np.vstack([means[:,i],means[:,j]]))
@@ -327,6 +348,7 @@ if __name__ == '__main__':
     patients_sorted = [x for x in dataset.keys()]
     patients_sorted.sort()
     num_patients = len(dataset)
+    total_observations = sum([len(x) for x in dataset.values()])
 
     hr_vals_flat = extract_by_key(dataset, "mean_hr")
     f = qqplot_norm(hr_vals_flat)
@@ -353,38 +375,38 @@ if __name__ == '__main__':
     f.suptitle("Log-transformed percent active")
 
     #zero-center steps
+    a = extract_by_key(dataset, "mean_steps_per_minute",patients=["P001"])
     standardize_by_patient_and_key(dataset, "mean_steps_per_minute", mean=0)
     zero_centered_step_vals_flat = extract_by_key(dataset, "mean_steps_per_minute")
     f = qqplot_norm(zero_centered_step_vals_flat)
     f.suptitle("Zero-centered daily steps")
 
-    plt.show(block=True)
-    sys.exit()
+    #plt.show(block=True)
 
-
-    sequence_data = np.transpose(np.vstack([zero_centered_hr_vals_flat, zero_centered_step_vals_flat]))
-    num_features = np.shape(sequence_data)[1]
+    keys_to_include = ["mean_hr", "mean_steps_per_minute"]
+    num_features = len(keys_to_include)
+    sequence_data = package_observations_for_model(dataset, keys_to_include, patient_ordering = patients_sorted)
 
     # number of models we try at each number of states
-    num_inits = 10
+    num_inits = 3
     # range of states to try
     min_states = 2
-    max_states = 8
+    max_states = 3
 
     num_processes = 6
 
     pool = multiprocessing.Pool(processes=num_processes)
     model_states_to_run = [x for x in range(min_states, max_states +1)] * num_inits
-    models = [pool.apply_async(learn_model, (num_states, num_features, sequence_data, sample_lengths,)) for num_states in model_states_to_run]
+    models = [pool.apply_async(learn_model, (num_states, num_features, sequence_data, )) for num_states in model_states_to_run]
     pool.close()
     pool.join()
 
     best_scores = {}
     best_models = {}
     for res in models:
-        em = res.get()
-        num_states = em.n_components
-        ll = em.monitor_.history[-1]
+        em = res.get()[0]
+        num_states = em.n_states
+        ll = res.get()[1]
         if best_models.get(num_states) is None or best_scores[num_states] < ll:
             best_models[num_states] = em
             best_scores[num_states] = ll
@@ -392,7 +414,9 @@ if __name__ == '__main__':
     optimal_bic_model = None
     optimal_bic = None
     for num_states in range(min_states, max_states + 1):
-        bic = best_models[num_states].bic(sequence_data, sample_lengths)
+        # DOF of (start probs) + (transition probs) + (mean and SD of each Gaussian)
+        dof = (num_states - 1) + (num_states * (num_states - 1)) + (num_features * 2)
+        bic = pyhhmm.utils.bic_hmm(best_scores[num_states], dof, total_observations)
         print(str(num_states) + " states: BIC " + str(bic))
         if optimal_bic_model is None or optimal_bic > bic:
             optimal_bic_model = best_models[num_states]
@@ -403,18 +427,20 @@ if __name__ == '__main__':
     load_update_clinical_outcome("../data/infections.csv","date_culture_drawn",["culture_source","infection_type","infection_name"], clinical_data)
     load_update_clinical_outcome("../data/readmissions.csv","date_admit",["admission_reason"], clinical_data)
 
-    states_inferred = optimal_bic_model.predict(sequence_data, sample_lengths)
+    states_inferred = optimal_bic_model.predict(sequence_data)
     clinical_headers = ["culture_source","infection_type","infection_name","admission_reason"]
     output_headers = ["STUDY_PRTCPT_ID","DaysFromTransplant","mean_hr","percent_active","mean_steps_per_minute","state"] + clinical_headers
     output_handle = open("../output.csv", 'w', newline='')
     output_writer = csv.DictWriter(output_handle, fieldnames=output_headers)
     output_writer.writeheader()
     current_state_idx = 0
-    for patient in patients_sorted:
+    for i in range(0, len(patients_sorted)):
+        patient = patients_sorted[i]
         days_sorted = [x for x in dataset[patient].keys()]
         days_sorted.sort()
-        for day in days_sorted:
-            dataset[patient][day]["state"] = states_inferred[current_state_idx]
+        for j in range(0, len(days_sorted)):
+            day = days_sorted[j]
+            dataset[patient][day]["state"] = states_inferred[i][j]
             current_row = dataset[patient][day]
             if clinical_data.get(patient) is not None and clinical_data[patient].get(day) is not None:
                 for clinical_key in clinical_headers:
@@ -432,45 +458,50 @@ if __name__ == '__main__':
     output_handle.close()
 
     print("Start probabilities:\n")
-    print(optimal_bic_model.startprob_)
+    print(optimal_bic_model.pi)
     print("\nTransition probabilities:\n")
-    print(optimal_bic_model.transmat_)
+    print(optimal_bic_model.A)
     print("\nMeans:\n")
-    print(optimal_bic_model.means_)
+    print(optimal_bic_model.means)
     print("\nCovariance matrices:\n")
-    print(optimal_bic_model.covars_)
+    print(optimal_bic_model.covars)
     sys.stdout.flush()
 
     aic_list = []
     bic_list = []
     ll_list = []
     for num_states in range(min_states, max_states + 1):
-        aic_list.append(best_models[num_states].aic(sequence_data, sample_lengths))
-        bic_list.append(best_models[num_states].bic(sequence_data, sample_lengths))
-        ll_list.append(best_models[num_states].score(sequence_data, sample_lengths))
+        # DOF of (start probs) + (transition probs) + (mean and SD of each Gaussian)
+        dof = (num_states - 1) + (num_states * (num_states - 1)) + (num_features * 2)
+        aic = pyhhmm.utils.aic_hmm(best_scores[num_states], dof)
+        bic = pyhhmm.utils.bic_hmm(best_scores[num_states], dof, total_observations)
+        ll = best_scores[num_states]
+        aic_list.append(aic)
+        bic_list.append(bic)
+        ll_list.append(ll)
 
     f = bic_graph(range(min_states, max_states + 1), aic_list, bic_list, ll_list)
 
     # any 3d plot libraries? would be helpful to see the joint probability dists for pairs of features
     f = gaussian_hinton_diagram(
-        optimal_bic_model.startprob_,
-        optimal_bic_model.transmat_,
-        optimal_bic_model.means_[:,0].ravel(),
-        [x[0][0] for x in optimal_bic_model.covars_],
+        optimal_bic_model.pi,
+        optimal_bic_model.A,
+        optimal_bic_model.means[:,0].ravel(),
+        [x[0][0] for x in optimal_bic_model.covars],
         infer_hidden=False,
     )
     f.suptitle("Expectation-Maximization Solution, Feature 0", size=16)
 
     f = gaussian_hinton_diagram(
-        optimal_bic_model.startprob_,
-        optimal_bic_model.transmat_,
-        optimal_bic_model.means_[:,1].ravel(),
-        [x[1][1] for x in optimal_bic_model.covars_],
+        optimal_bic_model.pi,
+        optimal_bic_model.A,
+        optimal_bic_model.means[:,1].ravel(),
+        [x[1][1] for x in optimal_bic_model.covars],
         infer_hidden=False,
     )
     f.suptitle("Expectation-Maximization Solution, Feature 1", size=16)
 
-    feature_0_1_means, feature_0_1_covars = extract_paired_dist(optimal_bic_model.means_, optimal_bic_model.covars_, 0, 1)
+    feature_0_1_means, feature_0_1_covars = extract_paired_dist(optimal_bic_model.means, optimal_bic_model.covars, 0, 1)
     f = multi_gaussian_3d_plot(feature_0_1_means, feature_0_1_covars, xlabel="Feature 0", ylabel="Feature 1")
 
     plt.show()
