@@ -205,6 +205,11 @@ def extract_by_key(data, key, skip_nan=True, patients=None):
                 extract.append(val)
     return extract
 
+def copy_data_to_new_key(data, key, new_key):
+    for patient in data:
+        for day in data[patient]:
+            data[patient][day][new_key] = data[patient][day][key]
+
 #standardize data per-patient based on desired statistical parameters
 #to get z-scores, set mean=0 and sd=1
 #if mean or SD is none, they are ignored
@@ -363,27 +368,29 @@ if __name__ == '__main__':
     f.suptitle("Daily steps")
 
     #zero-center HR
-    standardize_by_patient_and_key(dataset, "mean_hr", mean=0)
-    hr_vals_flat = extract_by_key(dataset, "mean_hr")
+    copy_data_to_new_key(dataset, "mean_hr", "zero_centered_mean_hr")
+    standardize_by_patient_and_key(dataset, "zero_centered_mean_hr", mean=0)
+    hr_vals_flat = extract_by_key(dataset, "zero_centered_mean_hr")
     f = qqplot_norm(hr_vals_flat)
     f.suptitle("Zero-centered daily HR")
 
     #log-transform activity values
-    apply_function_by_patient(dataset, "percent_active", lambda x: np.log(x+1))
-    activity_vals_flat_log_transform = extract_by_key(dataset, "percent_active")
+    copy_data_to_new_key(dataset, "percent_active", "log_percent_active")
+    apply_function_by_patient(dataset, "log_percent_active", lambda x: np.log(x+1))
+    activity_vals_flat_log_transform = extract_by_key(dataset, "log_percent_active")
     f = qqplot_norm(activity_vals_flat_log_transform)
     f.suptitle("Log-transformed percent active")
 
     #zero-center steps
-    a = extract_by_key(dataset, "mean_steps_per_minute",patients=["P001"])
-    standardize_by_patient_and_key(dataset, "mean_steps_per_minute", mean=0)
-    zero_centered_step_vals_flat = extract_by_key(dataset, "mean_steps_per_minute")
+    copy_data_to_new_key(dataset, "mean_steps_per_minute", "zero_centered_mean_steps_per_minute")
+    standardize_by_patient_and_key(dataset, "zero_centered_mean_steps_per_minute", mean=0)
+    zero_centered_step_vals_flat = extract_by_key(dataset, "zero_centered_mean_steps_per_minute")
     f = qqplot_norm(zero_centered_step_vals_flat)
     f.suptitle("Zero-centered daily steps")
 
     #plt.show(block=True)
 
-    keys_to_include = ["mean_hr", "mean_steps_per_minute"]
+    keys_to_include = ["zero_centered_mean_hr", "zero_centered_mean_steps_per_minute"]
     num_features = len(keys_to_include)
     sequence_data = package_observations_for_model(dataset, keys_to_include, patient_ordering = patients_sorted)
 
@@ -429,7 +436,7 @@ if __name__ == '__main__':
 
     states_inferred = optimal_bic_model.predict(sequence_data)
     clinical_headers = ["culture_source","infection_type","infection_name","admission_reason"]
-    output_headers = ["STUDY_PRTCPT_ID","DaysFromTransplant","mean_hr","percent_active","mean_steps_per_minute","state"] + clinical_headers
+    output_headers = ["STUDY_PRTCPT_ID","DaysFromTransplant","mean_hr","zero_centered_mean_hr","percent_active","mean_steps_per_minute","zero_centered_mean_steps_per_minute","state"] + clinical_headers
     output_handle = open("../output.csv", 'w', newline='')
     output_writer = csv.DictWriter(output_handle, fieldnames=output_headers)
     output_writer.writeheader()
