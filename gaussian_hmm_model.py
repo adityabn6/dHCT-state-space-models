@@ -330,10 +330,10 @@ def package_observations_for_model(data, keys, patient_ordering=None):
         output.append(feature_mat)
     return(output)
 
-def learn_model(num_states, num_features, sequence_data, n_iter=1000):
+def learn_model(num_states, num_features, sequence_data, n_iter=1000, n_init=1, n_processes=None):
     start_time = datetime.now()
-    em = GaussianHMM(n_states=num_states, n_emissions=num_features, covariance_type="full")
-    em, log_likelihood = em.train(sequence_data, n_init=1, n_iter=n_iter, conv_thresh=0.001, conv_iter=5)
+    em = GaussianHMM(n_states=num_states, n_emissions=num_features, covariance_type="full", verbose=True)
+    em, log_likelihood = em.train(sequence_data, n_init=n_init, n_iter=n_iter, conv_thresh=0.001, conv_iter=5, n_processes=n_processes, print_every=10)
     end_time = datetime.now()
     run_time = end_time - start_time
     print("Learned model for " + str(num_states) + " states. Time: " + str(run_time.total_seconds()) + " sec.", file=sys.stderr)
@@ -404,25 +404,22 @@ if __name__ == '__main__':
     sequence_data = package_observations_for_model(dataset, keys_to_include, patient_ordering = patients_sorted)
 
     # number of models we try at each number of states
-    num_inits = 10
+    num_inits = 5
     # range of states to try
     min_states = 2
-    max_states = 7
+    max_states = 5
 
     num_processes = 6
 
-    pool = multiprocessing.Pool(processes=num_processes)
     model_states_to_run = [x for x in range(min_states, max_states +1)] * num_inits
-    models = [pool.apply_async(learn_model, (num_states, num_features, sequence_data, )) for num_states in model_states_to_run]
-    pool.close()
-    pool.join()
+    models = [learn_model(num_states, num_features, sequence_data, n_init=num_inits, n_processes=num_processes) for num_states in model_states_to_run]
 
     best_scores = {}
     best_models = {}
     for res in models:
-        em = res.get()[0]
+        em = res[0]
         num_states = em.n_states
-        ll = res.get()[1]
+        ll = res[1]
         if best_models.get(num_states) is None or best_scores[num_states] < ll:
             best_models[num_states] = em
             best_scores[num_states] = ll
