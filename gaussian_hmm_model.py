@@ -6,6 +6,7 @@ import numpy as np
 from pyhhmm.gaussian import GaussianHMM
 import pyhhmm.utils
 import csv
+import os
 import sys
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
@@ -330,13 +331,23 @@ def package_observations_for_model(data, keys, patient_ordering=None):
         output.append(feature_mat)
     return(output)
 
-def learn_model(num_states, num_features, sequence_data, n_iter=1000):
+def learn_model(num_states, num_features, sequence_data, n_iter=100):
     start_time = datetime.now()
-    em = GaussianHMM(n_states=num_states, n_emissions=num_features, covariance_type="full")
-    em, log_likelihood = em.train(sequence_data, n_init=1, n_iter=n_iter, conv_thresh=0.001, conv_iter=5)
-    end_time = datetime.now()
-    run_time = end_time - start_time
-    print("Learned model for " + str(num_states) + " states. Time: " + str(run_time.total_seconds()) + " sec.", file=sys.stderr)
+    em = None
+    log_likelihood = None
+    print("PID " + str(os.getpid()) + ": Learning model for " + str(num_states) + " states.", file=sys.stderr)
+    try:
+        trained_em = GaussianHMM(n_states=num_states, n_emissions=num_features, covariance_type="full", verbose=True)
+        trained_em, trained_log_likelihood = trained_em.train(sequence_data, n_init=1, n_iter=n_iter, conv_thresh=0.001, conv_iter=5, print_every=10)
+        em = trained_em
+        log_likelihood = trained_log_likelihood
+        end_time = datetime.now()
+        run_time = end_time - start_time
+        print("PID " + str(os.getpid()) + ": Learned model for " + str(num_states) + " states. Time: " + str(run_time.total_seconds()) + " sec.", file=sys.stderr)
+    except ValueError as e:
+        end_time = datetime.now()
+        run_time = end_time - start_time
+        print("PID " + str(os.getpid()) + ": Failed to learn model for " + str(num_states) + " states. Time: " + str(run_time.total_seconds()) + " sec." + "Error: " + e, file=sys.stderr)
     return (em, log_likelihood)
 
 def extract_paired_dist(means, cov, i, j):
@@ -404,10 +415,10 @@ if __name__ == '__main__':
     sequence_data = package_observations_for_model(dataset, keys_to_include, patient_ordering = patients_sorted)
 
     # number of models we try at each number of states
-    num_inits = 10
+    num_inits = 5
     # range of states to try
     min_states = 2
-    max_states = 7
+    max_states = 5
 
     num_processes = 6
 
@@ -421,11 +432,12 @@ if __name__ == '__main__':
     best_models = {}
     for res in models:
         em = res.get()[0]
-        num_states = em.n_states
-        ll = res.get()[1]
-        if best_models.get(num_states) is None or best_scores[num_states] < ll:
-            best_models[num_states] = em
-            best_scores[num_states] = ll
+        if em is not None:
+            num_states = em.n_states
+            ll = res.get()[1]
+            if best_models.get(num_states) is None or best_scores[num_states] < ll:
+                best_models[num_states] = em
+                best_scores[num_states] = ll
 
     optimal_bic_model = None
     optimal_bic = None
