@@ -347,7 +347,7 @@ def learn_model(num_states, num_features, sequence_data, n_iter=100):
     except ValueError as e:
         end_time = datetime.now()
         run_time = end_time - start_time
-        print("PID " + str(os.getpid()) + ": Failed to learn model for " + str(num_states) + " states. Time: " + str(run_time.total_seconds()) + " sec." + "Error: " + e, file=sys.stderr)
+        print("PID " + str(os.getpid()) + ": Failed to learn model for " + str(num_states) + " states. Time: " + str(run_time.total_seconds()) + " sec." + "Error: " + str(e), file=sys.stderr)
     return (em, log_likelihood)
 
 def extract_paired_dist(means, cov, i, j):
@@ -415,7 +415,7 @@ if __name__ == '__main__':
     sequence_data = package_observations_for_model(dataset, keys_to_include, patient_ordering = patients_sorted)
 
     # number of models we try at each number of states
-    num_inits = 5
+    num_inits = 2
     # range of states to try
     min_states = 2
     max_states = 5
@@ -442,12 +442,15 @@ if __name__ == '__main__':
     optimal_bic_model = None
     optimal_bic = None
     for num_states in range(min_states, max_states + 1):
-        dof = pyhhmm.utils.get_n_fit_scalars(best_models[num_states])
-        bic = pyhhmm.utils.bic_hmm(best_scores[num_states], dof, total_observations)
-        print(str(num_states) + " states: BIC " + str(bic))
-        if optimal_bic_model is None or optimal_bic > bic:
-            optimal_bic_model = best_models[num_states]
-            optimal_bic = bic
+        if num_states in best_scores:
+            dof = pyhhmm.utils.get_n_fit_scalars(best_models[num_states])
+            bic = pyhhmm.utils.bic_hmm(best_scores[num_states], dof, total_observations)
+            print(str(num_states) + " states: BIC " + str(bic))
+            if optimal_bic_model is None or optimal_bic > bic:
+                optimal_bic_model = best_models[num_states]
+                optimal_bic = bic
+        else:
+            print("No model found for " + str(num_states) + " states.")
 
     #add clinical annotation: read in outcome files (like readmission and outcome) into sparse map
     clinical_data = {}
@@ -500,16 +503,19 @@ if __name__ == '__main__':
     aic_list = []
     bic_list = []
     ll_list = []
+    states_list = []
     for num_states in range(min_states, max_states + 1):
-        dof = pyhhmm.utils.get_n_fit_scalars(best_models[num_states])
-        aic = pyhhmm.utils.aic_hmm(best_scores[num_states], dof)
-        bic = pyhhmm.utils.bic_hmm(best_scores[num_states], dof, total_observations)
-        ll = best_scores[num_states]
-        aic_list.append(aic)
-        bic_list.append(bic)
-        ll_list.append(ll)
+        if num_states in best_scores:
+            dof = pyhhmm.utils.get_n_fit_scalars(best_models[num_states])
+            aic = pyhhmm.utils.aic_hmm(best_scores[num_states], dof)
+            bic = pyhhmm.utils.bic_hmm(best_scores[num_states], dof, total_observations)
+            ll = best_scores[num_states]
+            aic_list.append(aic)
+            bic_list.append(bic)
+            ll_list.append(ll)
+            states_list.append(num_states)
 
-    f = bic_graph(range(min_states, max_states + 1), aic_list, bic_list, ll_list)
+    f = bic_graph(states_list, aic_list, bic_list, ll_list)
 
     # any 3d plot libraries? would be helpful to see the joint probability dists for pairs of features
     f = gaussian_hinton_diagram(
