@@ -115,7 +115,7 @@ if __name__ == '__main__':
             dof = pyhhmm.utils.get_n_fit_scalars(em)
             bic = pyhhmm.utils.bic_hmm(ll, dof, total_observations)
             filename = "../output/model_" + str(num_states) + "s_" + str(model_idx_by_state[num_states]) + ".pkl"
-            print("Model for " + str(num_states) + ", number " + str(model_idx_by_state[num_states]) + ": BIC " + str(bic))
+            print("Model for " + str(num_states) + " states, number " + str(model_idx_by_state[num_states]) + ": BIC " + str(bic))
             save_model(em, filename)
 
     optimal_bic_model = None

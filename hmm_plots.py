@@ -41,6 +41,7 @@ if __name__ == '__main__':
     )
     f.suptitle("Expectation-Maximization Solution, Feature 1", size=16)
 
+    num_features = model.means.shape[1]
     for i in range(0, num_features - 1):
         for j in range(i+1, num_features):
             means, covars = helpers.extract_paired_dist(model.means, model.covars, i, j)
