@@ -76,7 +76,9 @@ if __name__ == '__main__':
 
     keys_to_include = ["zero_centered_mean_hr", "zero_centered_mean_steps_per_minute","MOOD","temp_c"]
     num_features = len(keys_to_include)
-    sequence_data = package_observations_for_model(dataset, keys_to_include, patient_ordering = patients_sorted)
+    #remove patient-days with no feature data
+    dataset_no_na_days = strip_na_days(dataset)
+    sequence_data = package_observations_for_model(dataset_no_na_days, keys_to_include, patient_ordering = patients_sorted)
 
     # number of models we try at each number of states
     num_inits = 2
@@ -136,21 +138,33 @@ if __name__ == '__main__':
     load_update_clinical_outcome("../data/infections.csv","date_culture_drawn",["culture_source","infection_type","infection_name"], clinical_data)
     load_update_clinical_outcome("../data/readmissions.csv","date_admit",["admission_reason"], clinical_data)
 
+    #add state results to dataset
     states_inferred = optimal_bic_model.predict(sequence_data)
+    for i in range(0, len(patients_sorted)):
+        current_state_idx = 0
+        patient = patients_sorted[i]
+        days_sorted = [x for x in dataset[patient].keys()]
+        days_sorted.sort()
+        for j in range(0, len(days_sorted)):
+            day = days_sorted[j]
+            if day in dataset_no_na_days[patient]:
+                dataset[patient][day]["state"] = states_inferred[i][current_state_idx]
+                current_state_idx = current_state_idx + 1
+            else:
+                dataset[patient][day]["state"] = np.nan
+
     clinical_headers = ["culture_source","infection_type","infection_name","admission_reason"]
     data_headers = ["mean_hr","zero_centered_mean_hr","percent_active","mean_steps_per_minute","zero_centered_mean_steps_per_minute","MOOD","temp_c","state"]
     output_headers = ["STUDY_PRTCPT_ID","DaysFromTransplant"] + data_headers + clinical_headers
     output_handle = open("../output.csv", 'w', newline='')
     output_writer = csv.DictWriter(output_handle, fieldnames=output_headers)
     output_writer.writeheader()
-    current_state_idx = 0
     for i in range(0, len(patients_sorted)):
         patient = patients_sorted[i]
         days_sorted = [x for x in dataset[patient].keys()]
         days_sorted.sort()
         for j in range(0, len(days_sorted)):
             day = days_sorted[j]
-            dataset[patient][day]["state"] = states_inferred[i][j]
             current_row = {}
             for key in data_headers:
                 current_row[key] = dataset[patient][day][key]
@@ -166,7 +180,6 @@ if __name__ == '__main__':
             current_row["STUDY_PRTCPT_ID"] = patient
             current_row["DaysFromTransplant"] = day
             output_writer.writerow(current_row)
-            current_state_idx = current_state_idx + 1
     output_handle.close()
 
     print("Start probabilities:\n")

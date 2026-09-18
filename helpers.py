@@ -305,6 +305,23 @@ def load_update_data_dict_sparse(filepath, key, data, fill=np.nan, aggregate_fun
                 val = aggregate_func(sparse_data[patient][day])
                 data[patient][day][key] = val
 
+#generate a copy of a dataset with all-NA days stripped
+def strip_na_days(data):
+    new_data = {}
+    for patient in data:
+        new_data[patient] = {}
+        for day in data[patient]:
+            include_row = False
+            for k, v in data[patient][day].items():
+                if not np.isnan(v):
+                    include_row = True
+                    break
+            if include_row:
+                new_data[patient][day] = {}
+                for k, v in data[patient][day].items():
+                    new_data[patient][day][k] = v
+    return new_data
+
 #generate an array of length num_patients containing (patient_days x features)
 #can specify a patient ordering
 def package_observations_for_model(data, keys, patient_ordering=None):
