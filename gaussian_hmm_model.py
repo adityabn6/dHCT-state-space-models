@@ -25,17 +25,17 @@ if __name__ == '__main__':
     max_days = update_max_day("../data/daily_activity.csv", max_post_txp_day=max_days, cohort=["Patients","Caregivers"])
     max_days = update_max_day("../data/daily_steps.csv", max_post_txp_day=max_days, cohort=["Patients","Caregivers"])
     max_days = update_max_day("../data/mood.csv", max_post_txp_day=max_days, cohort=["Patients","Caregivers"])
-    max_days = update_max_day("../data/temperature.csv", max_post_txp_day=max_days, patient_key="id", dft_key="dft", group_key=None)
+    #max_days = update_max_day("../data/temperature.csv", max_post_txp_day=max_days, patient_key="id", dft_key="dft", group_key=None)
     dataset = init_data(max_days)
 
     load_update_data_dict_sparse("../data/daily_hr.csv", "mean_hr", dataset)
     load_update_data_dict_sparse("../data/daily_activity.csv", "percent_active", dataset)
     load_update_data_dict_sparse("../data/daily_steps.csv", "mean_steps_per_minute", dataset)
     load_update_data_dict_sparse("../data/mood.csv", "MOOD", dataset)
-    load_update_data_dict_sparse("../data/temperature.csv", "temp_f", dataset, patient_key="id", dft_key="dft")
+    #load_update_data_dict_sparse("../data/temperature.csv", "temp_f", dataset, patient_key="id", dft_key="dft")
     #temperature to celsius
-    copy_data_to_new_key(dataset, "temp_f", "temp_c")
-    apply_function_by_patient(dataset, "temp_c", lambda x: (x - 32) / 1.8)
+    #copy_data_to_new_key(dataset, "temp_f", "temp_c")
+    #apply_function_by_patient(dataset, "temp_c", lambda x: (x - 32) / 1.8)
 
     patients_sorted = [x for x in dataset.keys()]
     patients_sorted.sort()
@@ -50,13 +50,13 @@ if __name__ == '__main__':
     f = qqplot_norm(step_vals_flat)
     f.suptitle("Daily steps")
 
-    step_vals_flat = extract_by_key(dataset, "MOOD")
-    f = qqplot_norm(step_vals_flat)
+    mood_flat = extract_by_key(dataset, "MOOD")
+    f = qqplot_norm(mood_flat)
     f.suptitle("Mood scores")
 
-    step_vals_flat = extract_by_key(dataset, "temp_c")
-    f = qqplot_norm(step_vals_flat)
-    f.suptitle("Temperature")
+    #temp_c_flat = extract_by_key(dataset, "temp_c")
+    #f = qqplot_norm(temp_c_flat)
+    #f.suptitle("Temperature")
 
     #zero-center HR
     copy_data_to_new_key(dataset, "mean_hr", "zero_centered_mean_hr")
@@ -74,17 +74,17 @@ if __name__ == '__main__':
 
     plt.show(block=True)
 
-    keys_to_include = ["zero_centered_mean_hr", "zero_centered_mean_steps_per_minute","MOOD","temp_c"]
+    keys_to_include = ["zero_centered_mean_hr", "zero_centered_mean_steps_per_minute","MOOD"]
     num_features = len(keys_to_include)
     #remove patient-days with no feature data
     dataset_no_na_days = strip_na_days(dataset)
     sequence_data = package_observations_for_model(dataset_no_na_days, keys_to_include, patient_ordering = patients_sorted)
 
     # number of models we try at each number of states
-    num_inits = 2
+    num_inits = 3
     # range of states to try
     min_states = 2
-    max_states = 2
+    max_states = 6
 
     num_processes = 6
 
@@ -154,9 +154,9 @@ if __name__ == '__main__':
                 dataset[patient][day]["state"] = np.nan
 
     clinical_headers = ["culture_source","infection_type","infection_name","admission_reason"]
-    data_headers = ["mean_hr","zero_centered_mean_hr","percent_active","mean_steps_per_minute","zero_centered_mean_steps_per_minute","MOOD","temp_c","state"]
+    data_headers = ["mean_hr","zero_centered_mean_hr","percent_active","mean_steps_per_minute","zero_centered_mean_steps_per_minute","MOOD","state"]
     output_headers = ["STUDY_PRTCPT_ID","DaysFromTransplant"] + data_headers + clinical_headers
-    output_handle = open("../output.csv", 'w', newline='')
+    output_handle = open("../output/output.csv", 'w', newline='')
     output_writer = csv.DictWriter(output_handle, fieldnames=output_headers)
     output_writer.writeheader()
     for i in range(0, len(patients_sorted)):
@@ -219,3 +219,11 @@ if __name__ == '__main__':
 # try learning model on patients with or without GVHD alone; if models look very different that would suggest something can be learned
 # also try this for caregivers as a control
 # if switching to PyHMM for missing value support, would need some QC (min observations, max % missing values)
+# EECS 448
+# https://atlas.ai.umich.edu/
+# drop temperature; most of it was obtained during admissions
+# try substituting sleep (sleep_duration) for mood
+# try more granular data with e.g. 15-min bins
+#   filter for bins where heart rate data is actually present 50% of the time
+#   also bin steps; if missing row then assume steps = 0
+#   include binary sleep or no sleep
