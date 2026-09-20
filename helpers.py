@@ -349,7 +349,7 @@ def learn_model(num_states, num_features, sequence_data, n_iter=100):
     log_likelihood = None
     print("PID " + str(os.getpid()) + ": Learning model for " + str(num_states) + " states.", file=sys.stderr)
     try:
-        trained_em = GaussianHMM(n_states=num_states, n_emissions=num_features, covariance_type="full", verbose=True)
+        trained_em = GaussianHMM(n_states=num_states, n_emissions=num_features, covariance_type="diagonal", verbose=True)
         trained_em, trained_log_likelihood = trained_em.train(sequence_data, n_init=1, n_iter=n_iter, conv_thresh=0.001, conv_iter=5, print_every=10)
         em = trained_em
         log_likelihood = trained_log_likelihood

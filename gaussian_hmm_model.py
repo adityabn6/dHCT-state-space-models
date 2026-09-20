@@ -9,6 +9,7 @@ import pyhhmm.utils
 import csv
 import os
 import sys
+import math
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
 import matplotlib
@@ -25,6 +26,7 @@ if __name__ == '__main__':
     max_days = update_max_day("../data/daily_activity.csv", max_post_txp_day=max_days, cohort=["Patients","Caregivers"])
     max_days = update_max_day("../data/daily_steps.csv", max_post_txp_day=max_days, cohort=["Patients","Caregivers"])
     max_days = update_max_day("../data/mood.csv", max_post_txp_day=max_days, cohort=["Patients","Caregivers"])
+    max_days = update_max_day("../data/sleep_stages.csv", max_post_txp_day=max_days, cohort=["Patients","Caregivers"])
     #max_days = update_max_day("../data/temperature.csv", max_post_txp_day=max_days, patient_key="id", dft_key="dft", group_key=None)
     dataset = init_data(max_days)
 
@@ -32,6 +34,7 @@ if __name__ == '__main__':
     load_update_data_dict_sparse("../data/daily_activity.csv", "percent_active", dataset)
     load_update_data_dict_sparse("../data/daily_steps.csv", "mean_steps_per_minute", dataset)
     load_update_data_dict_sparse("../data/mood.csv", "MOOD", dataset)
+    load_update_data_dict_sparse("../data/sleep_stages.csv", "sleep_duration", dataset)
     #load_update_data_dict_sparse("../data/temperature.csv", "temp_f", dataset, patient_key="id", dft_key="dft")
     #temperature to celsius
     #copy_data_to_new_key(dataset, "temp_f", "temp_c")
@@ -48,11 +51,18 @@ if __name__ == '__main__':
 
     step_vals_flat = extract_by_key(dataset, "mean_steps_per_minute")
     f = qqplot_norm(step_vals_flat)
-    f.suptitle("Daily steps")
+    f.suptitle("Mean steps per minute")
 
     mood_flat = extract_by_key(dataset, "MOOD")
     f = qqplot_norm(mood_flat)
     f.suptitle("Mood scores")
+
+    #log-transform sleep
+    copy_data_to_new_key(dataset, "sleep_duration", "log_sleep_duration")
+    apply_function_by_patient(dataset, "log_sleep_duration", lambda x: math.log(x))
+    sleep_duration_flat = extract_by_key(dataset, "log_sleep_duration")
+    f = qqplot_norm(sleep_duration_flat)
+    f.suptitle("Log (sleep duration)")
 
     #temp_c_flat = extract_by_key(dataset, "temp_c")
     #f = qqplot_norm(temp_c_flat)
@@ -70,11 +80,11 @@ if __name__ == '__main__':
     standardize_by_patient_and_key(dataset, "zero_centered_mean_steps_per_minute", mean=0)
     zero_centered_step_vals_flat = extract_by_key(dataset, "zero_centered_mean_steps_per_minute")
     f = qqplot_norm(zero_centered_step_vals_flat)
-    f.suptitle("Zero-centered daily steps")
+    f.suptitle("Zero-centered mean steps per minute")
 
     plt.show(block=True)
 
-    keys_to_include = ["zero_centered_mean_hr", "zero_centered_mean_steps_per_minute","MOOD"]
+    keys_to_include = ["zero_centered_mean_hr", "zero_centered_mean_steps_per_minute","MOOD","log_sleep_duration"]
     num_features = len(keys_to_include)
     #remove patient-days with no feature data
     dataset_no_na_days = strip_na_days(dataset)
@@ -154,7 +164,7 @@ if __name__ == '__main__':
                 dataset[patient][day]["state"] = np.nan
 
     clinical_headers = ["culture_source","infection_type","infection_name","admission_reason"]
-    data_headers = ["mean_hr","zero_centered_mean_hr","percent_active","mean_steps_per_minute","zero_centered_mean_steps_per_minute","MOOD","state"]
+    data_headers = ["mean_hr","zero_centered_mean_hr","percent_active","mean_steps_per_minute","zero_centered_mean_steps_per_minute","MOOD","sleep_duration","log_sleep_duration","state"]
     output_headers = ["STUDY_PRTCPT_ID","DaysFromTransplant"] + data_headers + clinical_headers
     output_handle = open("../output/output.csv", 'w', newline='')
     output_writer = csv.DictWriter(output_handle, fieldnames=output_headers)
