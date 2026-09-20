@@ -59,8 +59,8 @@ if __name__ == '__main__':
 
     keys_to_include = ["zero_centered_mean_hr", "zero_centered_mean_steps_per_minute","MOOD","log_sleep_duration"]
     num_features = len(keys_to_include)
-    #remove patient-days with no feature data
-    dataset_no_na_days = strip_na_days(dataset)
+    #remove patient-days with less than two observations
+    dataset_no_na_days = filter_minimum_obs_days(dataset, minimum_obs=2)
     sequence_data = package_observations_for_model(dataset_no_na_days, keys_to_include, patient_ordering = patients_sorted)
 
     # number of models we try at each number of states

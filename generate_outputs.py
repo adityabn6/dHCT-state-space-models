@@ -23,7 +23,7 @@ if __name__ == '__main__':
     patients_sorted.sort()
     keys_to_include = ["zero_centered_mean_hr", "zero_centered_mean_steps_per_minute","MOOD","log_sleep_duration"]
     #remove patient-days with no feature data
-    dataset_no_na_days = strip_na_days(dataset)
+    dataset_no_na_days = filter_minimum_obs_days(dataset, minimum_obs=2)
     sequence_data = package_observations_for_model(dataset_no_na_days, keys_to_include, patient_ordering = patients_sorted)
 
     #add clinical annotation: read in outcome files (like readmission and outcome) into sparse map
@@ -40,7 +40,7 @@ if __name__ == '__main__':
         days_sorted.sort()
         for j in range(0, len(days_sorted)):
             day = days_sorted[j]
-            if day in dataset_no_na_days[patient]:
+            if patient in dataset_no_na_days and day in dataset_no_na_days[patient]:
                 dataset[patient][day]["state"] = states_inferred[i][current_state_idx]
                 current_state_idx = current_state_idx + 1
             else:

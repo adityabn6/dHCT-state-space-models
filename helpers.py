@@ -305,21 +305,22 @@ def load_update_data_dict_sparse(filepath, key, data, fill=np.nan, aggregate_fun
                 val = aggregate_func(sparse_data[patient][day])
                 data[patient][day][key] = val
 
-#generate a copy of a dataset with all-NA days stripped
-def strip_na_days(data):
+#generate a copy of a dataset filtered for patient-days with at least this many non-NA observations
+def filter_minimum_obs_days(data, minimum_obs=1):
     new_data = {}
     for patient in data:
-        new_data[patient] = {}
+        new_patient_data = {}
         for day in data[patient]:
-            include_row = False
+            obs_count = 0
             for k, v in data[patient][day].items():
                 if not np.isnan(v):
-                    include_row = True
-                    break
-            if include_row:
-                new_data[patient][day] = {}
+                    obs_count = obs_count + 1
+            if obs_count >= minimum_obs:
+                new_patient_data[day] = {}
                 for k, v in data[patient][day].items():
-                    new_data[patient][day][k] = v
+                    new_patient_data[day][k] = v
+        if len(new_patient_data) > 0:
+            new_data[patient] = new_patient_data
     return new_data
 
 #generate an array of length num_patients containing (patient_days x features)
@@ -331,16 +332,17 @@ def package_observations_for_model(data, keys, patient_ordering=None):
     if patient_ordering is not None:
         patients_ordered = patient_ordering
     for patient in patients_ordered:
-        num_days = len(data[patient])
-        feature_mat = np.zeros(num_days * num_features).reshape(num_days, num_features)
-        day_idx = 0
-        days_sorted = [x for x in data[patient]]
-        days_sorted.sort()
-        for day in days_sorted:
-            for i in range(0, num_features):
-                feature_mat[day_idx, i] = data[patient][day][keys[i]]
-            day_idx = day_idx + 1
-        output.append(feature_mat)
+        if patient in data:
+            num_days = len(data[patient])
+            feature_mat = np.zeros(num_days * num_features).reshape(num_days, num_features)
+            day_idx = 0
+            days_sorted = [x for x in data[patient]]
+            days_sorted.sort()
+            for day in days_sorted:
+                for i in range(0, num_features):
+                    feature_mat[day_idx, i] = data[patient][day][keys[i]]
+                day_idx = day_idx + 1
+            output.append(feature_mat)
     return(output)
 
 def learn_model(num_states, num_features, sequence_data, n_iter=100):
