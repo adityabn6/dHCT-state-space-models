@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 
 if __name__ == '__main__':
     model_filename = sys.argv[1]
-
     model = pyhhmm.utils.load_model(model_filename)
 
     print("Start probabilities:\n")

@@ -1,5 +1,6 @@
 #!/bin/python
 
+from data_loader import load_data
 from helpers import *
 
 import numpy as np
@@ -8,8 +9,6 @@ import numpy as np
 import pyhhmm.utils
 import csv
 import os
-import sys
-import math
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
 import matplotlib
@@ -21,24 +20,7 @@ import multiprocessing
 # https://deepblue.lib.umich.edu/data/concern/data_sets/ht24wk394?locale=en
 
 if __name__ == '__main__':
-    # load and normalize per-patient data
-    max_days = update_max_day("../data/daily_hr.csv", cohort=["Patients","Caregivers"])
-    max_days = update_max_day("../data/daily_activity.csv", max_post_txp_day=max_days, cohort=["Patients","Caregivers"])
-    max_days = update_max_day("../data/daily_steps.csv", max_post_txp_day=max_days, cohort=["Patients","Caregivers"])
-    max_days = update_max_day("../data/mood.csv", max_post_txp_day=max_days, cohort=["Patients","Caregivers"])
-    max_days = update_max_day("../data/sleep_stages.csv", max_post_txp_day=max_days, cohort=["Patients","Caregivers"])
-    #max_days = update_max_day("../data/temperature.csv", max_post_txp_day=max_days, patient_key="id", dft_key="dft", group_key=None)
-    dataset = init_data(max_days)
-
-    load_update_data_dict_sparse("../data/daily_hr.csv", "mean_hr", dataset)
-    load_update_data_dict_sparse("../data/daily_activity.csv", "percent_active", dataset)
-    load_update_data_dict_sparse("../data/daily_steps.csv", "mean_steps_per_minute", dataset)
-    load_update_data_dict_sparse("../data/mood.csv", "MOOD", dataset)
-    load_update_data_dict_sparse("../data/sleep_stages.csv", "sleep_duration", dataset)
-    #load_update_data_dict_sparse("../data/temperature.csv", "temp_f", dataset, patient_key="id", dft_key="dft")
-    #temperature to celsius
-    #copy_data_to_new_key(dataset, "temp_f", "temp_c")
-    #apply_function_by_patient(dataset, "temp_c", lambda x: (x - 32) / 1.8)
+    dataset = load_data()
 
     patients_sorted = [x for x in dataset.keys()]
     patients_sorted.sort()
@@ -57,9 +39,6 @@ if __name__ == '__main__':
     f = qqplot_norm(mood_flat)
     f.suptitle("Mood scores")
 
-    #log-transform sleep
-    copy_data_to_new_key(dataset, "sleep_duration", "log_sleep_duration")
-    apply_function_by_patient(dataset, "log_sleep_duration", lambda x: math.log(x))
     sleep_duration_flat = extract_by_key(dataset, "log_sleep_duration")
     f = qqplot_norm(sleep_duration_flat)
     f.suptitle("Log (sleep duration)")
@@ -68,16 +47,10 @@ if __name__ == '__main__':
     #f = qqplot_norm(temp_c_flat)
     #f.suptitle("Temperature")
 
-    #zero-center HR
-    copy_data_to_new_key(dataset, "mean_hr", "zero_centered_mean_hr")
-    standardize_by_patient_and_key(dataset, "zero_centered_mean_hr", mean=0)
     zero_centered_mean_hr_flat = extract_by_key(dataset, "zero_centered_mean_hr")
     f = qqplot_norm(zero_centered_mean_hr_flat)
     f.suptitle("Zero-centered daily HR")
 
-    #zero-center steps
-    copy_data_to_new_key(dataset, "mean_steps_per_minute", "zero_centered_mean_steps_per_minute")
-    standardize_by_patient_and_key(dataset, "zero_centered_mean_steps_per_minute", mean=0)
     zero_centered_step_vals_flat = extract_by_key(dataset, "zero_centered_mean_steps_per_minute")
     f = qqplot_norm(zero_centered_step_vals_flat)
     f.suptitle("Zero-centered mean steps per minute")
@@ -142,85 +115,6 @@ if __name__ == '__main__':
                 optimal_bic = bic
         else:
             print("No model found for " + str(num_states) + " states.")
-
-    #add clinical annotation: read in outcome files (like readmission and outcome) into sparse map
-    clinical_data = {}
-    load_update_clinical_outcome("../data/infections.csv","date_culture_drawn",["culture_source","infection_type","infection_name"], clinical_data)
-    load_update_clinical_outcome("../data/readmissions.csv","date_admit",["admission_reason"], clinical_data)
-
-    #add state results to dataset
-    states_inferred = optimal_bic_model.predict(sequence_data)
-    for i in range(0, len(patients_sorted)):
-        current_state_idx = 0
-        patient = patients_sorted[i]
-        days_sorted = [x for x in dataset[patient].keys()]
-        days_sorted.sort()
-        for j in range(0, len(days_sorted)):
-            day = days_sorted[j]
-            if day in dataset_no_na_days[patient]:
-                dataset[patient][day]["state"] = states_inferred[i][current_state_idx]
-                current_state_idx = current_state_idx + 1
-            else:
-                dataset[patient][day]["state"] = np.nan
-
-    clinical_headers = ["culture_source","infection_type","infection_name","admission_reason"]
-    data_headers = ["mean_hr","zero_centered_mean_hr","percent_active","mean_steps_per_minute","zero_centered_mean_steps_per_minute","MOOD","sleep_duration","log_sleep_duration","state"]
-    output_headers = ["STUDY_PRTCPT_ID","DaysFromTransplant"] + data_headers + clinical_headers
-    output_handle = open("../output/output.csv", 'w', newline='')
-    output_writer = csv.DictWriter(output_handle, fieldnames=output_headers)
-    output_writer.writeheader()
-    for i in range(0, len(patients_sorted)):
-        patient = patients_sorted[i]
-        days_sorted = [x for x in dataset[patient].keys()]
-        days_sorted.sort()
-        for j in range(0, len(days_sorted)):
-            day = days_sorted[j]
-            current_row = {}
-            for key in data_headers:
-                current_row[key] = dataset[patient][day][key]
-            if clinical_data.get(patient) is not None and clinical_data[patient].get(day) is not None:
-                for clinical_key in clinical_headers:
-                    if clinical_data[patient][day].get(clinical_key) is not None:
-                        current_row[clinical_key] = clinical_data[patient][day][clinical_key]
-                    else:
-                        current_row[clinical_key] = ""
-            else:
-                for clinical_key in clinical_headers:
-                    current_row[clinical_key] = ""
-            current_row["STUDY_PRTCPT_ID"] = patient
-            current_row["DaysFromTransplant"] = day
-            output_writer.writerow(current_row)
-    output_handle.close()
-
-    print("Start probabilities:\n")
-    print(optimal_bic_model.pi)
-    print("\nTransition probabilities:\n")
-    print(optimal_bic_model.A)
-    print("\nMeans:\n")
-    print(optimal_bic_model.means)
-    print("\nCovariance matrices:\n")
-    print(optimal_bic_model.covars)
-    sys.stdout.flush()
-
-    aic_list = []
-    bic_list = []
-    ll_list = []
-    states_list = []
-    for num_states in range(min_states, max_states + 1):
-        if num_states in best_scores:
-            dof = pyhhmm.utils.get_n_fit_scalars(best_models[num_states])
-            aic = pyhhmm.utils.aic_hmm(best_scores[num_states], dof)
-            bic = pyhhmm.utils.bic_hmm(best_scores[num_states], dof, total_observations)
-            ll = best_scores[num_states]
-            aic_list.append(aic)
-            bic_list.append(bic)
-            ll_list.append(ll)
-            states_list.append(num_states)
-
-    f = bic_graph(states_list, aic_list, bic_list, ll_list)
-
-    plt.show()
-
 
 # inferring a resting heart rate? (for a patient, HR when steps are 0 and activity 1) - lab has data for this already
 #   maybe normalize based on it (could be proxy for intrinsic SA nodal variability)
