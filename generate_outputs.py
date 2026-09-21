@@ -33,6 +33,7 @@ if __name__ == '__main__':
 
     #add state results to dataset
     states_inferred = model.predict(sequence_data)
+    patient_idx = 0
     for i in range(0, len(patients_sorted)):
         current_state_idx = 0
         patient = patients_sorted[i]
@@ -41,10 +42,12 @@ if __name__ == '__main__':
         for j in range(0, len(days_sorted)):
             day = days_sorted[j]
             if patient in dataset_no_na_days and day in dataset_no_na_days[patient]:
-                dataset[patient][day]["state"] = states_inferred[i][current_state_idx]
+                dataset[patient][day]["state"] = states_inferred[patient_idx][current_state_idx]
                 current_state_idx = current_state_idx + 1
             else:
                 dataset[patient][day]["state"] = np.nan
+        if patient in dataset_no_na_days:
+            patient_idx = patient_idx + 1
 
     clinical_headers = ["culture_source","infection_type","infection_name","admission_reason"]
     data_headers = ["mean_hr","zero_centered_mean_hr","percent_active","mean_steps_per_minute","zero_centered_mean_steps_per_minute","MOOD","sleep_duration","log_sleep_duration","state"]
